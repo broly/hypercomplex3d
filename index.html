@@ -780,22 +780,63 @@ function intrinsicGLSL(name, alg, jac, df) {
   return s;
 }
 
+// Mandelbulb power for integer n in double-float, without trig: the two angles are multiplied by raising
+// unit complex numbers to the n-th power. U = (x + iy)/ρ carries the longitude; V carries the other angle with
+// magnitude r, so Vⁿ also yields rⁿ. Standard bulb: V = z + iρ (angle from the pole); White's: V = ρ + iz (latitude).
+// Both pairs live in one Q (lanes xy and zw) and are squared together.
+const BULB_DF = `#ifndef BULB_DF
+#define BULB_DF
+Q bcmulD(Q a, Q b) { vec4 s = vec4(-1.0, 1.0, -1.0, 1.0); return dadd(dmul(Q(a.hi.xxzz, a.lo.xxzz), b), dmul(Q(a.hi.yyww, a.lo.yyww), Q(b.hi.yxwz * s, b.lo.yxwz * s))); }
+Q dsqrtD(Q a) { vec4 h = sqrt(max(a.hi, 0.0)); Q S = dlift(h); return dadd(S, dmulf(dsub(a, dmul(S, S)), 0.5 / max(h, vec4(1e-30)))); }
+Q bulbPowD(Q a, float n, bool white) {
+  Q sq = dmul(a, a);
+  Q rho2 = dadd(Q(sq.hi.xxxx, sq.lo.xxxx), Q(sq.hi.yyyy, sq.lo.yyyy)), r2 = dadd(rho2, Q(sq.hi.zzzz, sq.lo.zzzz));
+  if (r2.hi.x == 0.0) return dlift(vec4(0.0));
+  Q rr = dsqrtD(Q(vec4(rho2.hi.x, r2.hi.x, 0.0, 0.0), vec4(rho2.lo.x, r2.lo.x, 0.0, 0.0)));   // x: ρ, y: r
+  Q U = dlift(vec4(1.0, 0.0, 0.0, 0.0));
+  if (rho2.hi.x != 0.0) U = dmul(Q(vec4(a.hi.xy, 0.0, 0.0), vec4(a.lo.xy, 0.0, 0.0)), drcp(Q(rr.hi.xxxx, rr.lo.xxxx)));
+  Q W = Q(vec4(U.hi.xy, a.hi.z, rr.hi.x), vec4(U.lo.xy, a.lo.z, rr.lo.x));
+  if (white) W = Q(vec4(U.hi.xy, rr.hi.x, a.hi.z), vec4(U.lo.xy, rr.lo.x, a.lo.z));
+  Q R = dlift(vec4(1.0, 0.0, 1.0, 0.0));
+  int m = int(n);
+  for (int k = 0; k < 7; k++) { if ((m & 1) != 0) R = bcmulD(R, W); m >>= 1; if (m == 0) break; W = bcmulD(W, W); }
+  // R = (cos nλ, sin nλ, rⁿ cos nμ, rⁿ sin nμ)
+  Q m1 = Q(vec4(R.hi.xy, 1.0, 0.0), vec4(R.lo.xy, 0.0, 0.0));
+  Q m2 = Q(vec4(R.hi.ww, R.hi.z, 0.0), vec4(R.lo.ww, R.lo.z, 0.0));
+  if (white) m2 = Q(vec4(R.hi.zz, -R.hi.w, 0.0), vec4(R.lo.zz, -R.lo.w, 0.0));
+  Q o = dmul(m1, m2);
+  if (a.hi.w != 0.0) {
+    // the 4th component scales by r^(n−1) = |Vⁿ| / r, as in the float version
+    Q s2 = dmul(R, R);
+    Q rn = dsqrtD(dadd(Q(s2.hi.zzzz, s2.lo.zzzz), Q(s2.hi.wwww, s2.lo.wwww)));
+    Q w = dmul(Q(a.hi.wwww, a.lo.wwww), dmul(rn, drcp(Q(rr.hi.yyyy, rr.lo.yyyy))));
+    o.hi.w = w.hi.x; o.lo.w = w.lo.x;
+  }
+  return o;
+}
+#endif`;
+
 // Folds act on the 4 components directly, independent of the algebra
 function foldGLSL(name, jac, df) {
   const G = {
     boxfold: {
       v: `vec4 f_boxfold(vec4 a, float r) { return clamp(a, -r, r) * 2.0 - a; }`,
-      q: `Q f_boxfold(Q a, float r) { vec4 gt = step(r, a.hi), lt = step(a.hi, vec4(-r)), m = 1.0 - 2.0 * (gt + lt); return dadd(Q(a.hi * m, a.lo * m), dlift(2.0 * r * (gt - lt))); }`,
+      // the branch is chosen from the sign of (hi − r) + lo: hi − r is exact near r, so a value within a float
+      // ulp of the fold plane still lands on the correct side (the float head alone would blur it by ~1e-7)
+      q: `Q f_boxfold(Q a, float r) { vec4 gt = step(0.0, (a.hi - r) * uOne + a.lo), lt = step(0.0, -((a.hi + r) * uOne + a.lo)), m = 1.0 - 2.0 * (gt + lt); return dadd(Q(a.hi * m, a.lo * m), dlift(2.0 * r * (gt - lt))); }`,
       s: `S f_boxfold(S a, float r) { return S(f_boxfold(a.v, r), a.d); }`,
       j: `J f_boxfold(J a, float r) { vec4 s = 1.0 - 2.0 * step(r, abs(VHI(a.v))); return J(f_boxfold(a.v, r), ${J3((i) => `a.d[${i}] * s`)}); }`,
     },
     spherefold: {
       v: `float sfK(float r2, float mn, float mx) { return r2 < mn * mn ? (mx * mx) / (mn * mn) : r2 < mx * mx ? (mx * mx) / r2 : 1.0; }
 vec4 f_spherefold(vec4 a, float mn, float mx) { return a * sfK(dot(a, a), mn, mx); }`,
+      // |z|² in double-float for both the branch and the factor; the inner factor is R²/rmin² in double-float
+      // too, so the map stays continuous at |z| = rmin to the last bit
       q: `Q f_spherefold(Q a, float mn, float mx) {
-  float r2 = dot(a.hi, a.hi);
-  if (r2 < mn * mn) return dmulf(a, vec4((mx * mx) / (mn * mn)));
-  if (r2 < mx * mx) return dmul(a, dmulf(drcp(dlen2(a)), vec4(mx * mx)));
+  Q L = dlen2(a);
+  float m2 = mn * mn, M2 = mx * mx;
+  if ((L.hi.x - m2) * uOne + L.lo.x < 0.0) return dmul(a, dmulf(drcp(dlift(vec4(m2))), vec4(M2)));
+  if ((L.hi.x - M2) * uOne + L.lo.x < 0.0) return dmul(a, dmulf(drcp(L), vec4(M2)));
   return a;
 }`,
       s: `S f_spherefold(S a, float mn, float mx) { vec4 v = VHI(a.v); return S(f_spherefold(a.v, mn, mx), a.d * sfK(dot(v, v), mn, mx)); }`,
@@ -815,7 +856,8 @@ vec4 f_spherefold(vec4 a, float mn, float mx) { return a * sfK(dot(a, a), mn, mx
   float th = acos(clamp(a.z / r, -1.0, 1.0)) * n, ph = atan(a.y, a.x) * n, rn = pow(r, n);
   return vec4(rn * sin(th) * cos(ph), rn * sin(th) * sin(ph), rn * cos(th), a.w * rn / r);
 }`,
-      q: `Q f_bulb(Q a, float n) { return dlift(f_bulb(a.hi, n)); }`,
+      q: `${BULB_DF}
+Q f_bulb(Q a, float n) { if (n == floor(n) && n >= 1.0 && n <= 127.0) return bulbPowD(a, n, false); return dlift(f_bulb(a.hi, n)); }`,
       s: `S f_bulb(S a, float n) { return S(f_bulb(a.v, n), a.d * n * pow(max(length(VHI(a.v)), 1e-30), n - 1.0)); }`,
       // the triplex power is not conformal: Jacobian columns by central differences
       j: `vec4 bulbD(vec4 v, vec4 d, float n) { float l = length(d); if (l == 0.0) return vec4(0.0); float s = 1e-3 * max(length(v), 1e-20) / l; return (f_bulb(v + d * s, n) - f_bulb(v - d * s, n)) / (2.0 * s); }
@@ -836,7 +878,8 @@ J f_bulb(J a, float n) { vec4 v = VHI(a.v); return J(f_bulb(a.v, n), ${J3((i) =>
   float th = atan(a.y, a.x) * n, ph = asin(clamp(a.z / r, -1.0, 1.0)) * n, rn = pow(r, n);
   return vec4(rn * cos(th) * cos(ph), rn * sin(th) * cos(ph), -rn * sin(ph), a.w * rn / r);
 }`,
-      q: `Q f_bulbw(Q a, float n) { return dlift(f_bulbw(a.hi, n)); }`,
+      q: `${BULB_DF}
+Q f_bulbw(Q a, float n) { if (n == floor(n) && n >= 1.0 && n <= 127.0) return bulbPowD(a, n, true); return dlift(f_bulbw(a.hi, n)); }`,
       s: `S f_bulbw(S a, float n) { return S(f_bulbw(a.v, n), a.d * n * pow(max(length(VHI(a.v)), 1e-30), n - 1.0)); }`,
       j: `vec4 bulbwD(vec4 v, vec4 d, float n) { float l = length(d); if (l == 0.0) return vec4(0.0); float s = 1e-3 * max(length(v), 1e-20) / l; return (f_bulbw(v + d * s, n) - f_bulbw(v - d * s, n)) / (2.0 * s); }
 J f_bulbw(J a, float n) { vec4 v = VHI(a.v); return J(f_bulbw(a.v, n), ${J3((i) => `bulbwD(v, a.d[${i}], n)`)}); }`,
@@ -896,10 +939,17 @@ vec4 ainv(vec4 a) { vec4 A = toI(a); return fromI(vec4(cinv(A.xy), cinv(A.zw)));
 float opn(vec4 a) { vec4 A = toI(a); return max(length(A.xy), length(A.zw)); }
 `;
 
-// Double-float arithmetic (≈ 48-bit mantissa from pairs of floats). uOne = 1.0 is a uniform so the
-// compiler cannot prove the error-free transformations are zero and fold them away.
+// Double-float arithmetic (≈ 48-bit mantissa from pairs of floats). Multiplying by uOne = 1.0 keeps the compiler
+// from proving that the error-free transformations are zero and folding them away. uOne must be opaque: a plain
+// uniform is not enough, the D3D11 shader pipeline (ANGLE, seen on Intel) treated it as the constant 1 in some
+// builds, cancelled the error terms and silently dropped the formula input to float precision; deep in a zoom the
+// fractal turned into flat axis-aligned blocks. So uOne is derived from gl_FragCoord in dfInit(), which every
+// double-float main() calls first; (x >> 30) is 0 for any real pixel but no compiler can know it.
 const GLSL_DF = `
-uniform float uOne;
+uniform float uOneU;
+float uOne = 1.0;
+#define DF_INIT
+void dfInit() { uOne = uOneU + float(int(gl_FragCoord.x) >> 30); }
 struct Q { vec4 hi; vec4 lo; };
 Q dlift(vec4 a) { return Q(a, vec4(0.0)); }
 vec4 dfTwoSum(vec4 a, vec4 b, out vec4 e) { vec4 s = (a + b) * uOne; vec4 v = (s - a) * uOne; e = (a - (s - v)) + (b - v); return s; }
@@ -1277,6 +1327,9 @@ vec2 hash2(vec2 p) {
 }
 
 void main() {
+#ifdef DF_INIT
+  dfInit();
+#endif
   vec2 fc = gl_FragCoord.xy + uJitter;
   vec2 uv = (2.0 * fc - uRes) / uRes.y;
   vec3 rd = normalize(uCamRot * vec3(uv * uFov, -1.0));
@@ -1377,6 +1430,9 @@ out vec4 outColor;
 vec4 Zref(int m) { return texelFetch(uOrbit, ivec2(m & 1023, m >> 10), 0); }
 
 void main() {
+#ifdef DF_INIT
+  dfInit();
+#endif
   vec2 uv = (2.0 * (gl_FragCoord.xy + uJitter) - uRes) / uRes.y;
   vec2 pl = uOffset + uv * uHalf;          // plane coordinates relative to the reference point
   vec4 d4 = pl.x * uA + pl.y * uB;
@@ -1585,13 +1641,14 @@ const dfOK = (() => {
 uniform float uTiny;
 out vec4 o;
 void main() {
+  dfInit();
   Q a = dadd(dlift(vec4(1.0)), dlift(vec4(uTiny)));
   Q m = dmul(a, a);
   o = vec4(a.lo.x / uTiny, m.lo.x / (2.0 * uTiny), 0.0, 1.0);
 }`, "df64 self-test");
     const t = makeTarget();
     gl.bindFramebuffer(gl.FRAMEBUFFER, t.fb); gl.viewport(0, 0, 1, 1);
-    gl.useProgram(pr.p); gl.uniform1f(pr.u.uOne, 1); gl.uniform1f(pr.u.uTiny, 2 ** -30);
+    gl.useProgram(pr.p); gl.uniform1f(pr.u.uOneU, 1); gl.uniform1f(pr.u.uTiny, 2 ** -30);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     const px = new Float32Array(4); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.FLOAT, px);
     return Math.abs(px[0] - 1) < 0.01 && Math.abs(px[1] - 1) < 0.01;
@@ -1609,6 +1666,21 @@ const RT = {
   lastChange: 0, fullStart: 0, doneMs: 0, prevMs: 0, compileMs: 0, deg: 2, useDF: false, camDE: 1, lastDE: 1, iterEff: 14, precWarn: false, pertWhy: "",
 };
 
+// true when every operation of the formula keeps double-float precision; transcendental functions, norm,
+// non-integer powers and non-integer Mandelbulb powers are evaluated in float even in df64 mode
+function dfExact(n) {
+  switch (n.t) {
+    case "k": case "p": case "v": return true;
+    case "neg": return dfExact(n.a);
+    case "fn":
+      if (["abs", "conj", "re", "boxfold", "spherefold"].includes(n.f)) return dfExact(n.a);
+      if (n.f === "bulb" || n.f === "bulbw") { const m = argNum(n.p[0]); return Number.isInteger(m) && m >= 1 && m <= 127 && dfExact(n.a); }
+      return false;
+  }
+  if (n.op === "^") return realK(n.b) && Number.isInteger(n.b.q[0]) && Math.abs(n.b.q[0]) <= 4096 && dfExact(n.a);
+  return dfExact(n.a) && dfExact(n.b);
+}
+const dfUseful = () => !RT.asts || RT.asts.every(dfExact);
 const usesFn = (n, names) => n.t === "fn" ? names.includes(n.f) || usesFn(n.a, names) : n.t === "op" ? usesFn(n.a, names) || usesFn(n.b, names) : n.t === "neg" ? usesFn(n.a, names) : false;
 function markSlots(bad, msg) {
   [...$("slots").querySelectorAll(".expr")].forEach((inp, i) => inp.classList.toggle("bad", i === bad));
@@ -1997,7 +2069,7 @@ function setUniforms3D(pr, w, h, jit, lite) {
   const u = pr.u, f = camFrame(), n = cutNormal();
   gl.useProgram(pr.p);
   setCommon(u);
-  gl.uniform1f(u.uOne, 1);
+  gl.uniform1f(u.uOneU, 1);
   gl.uniform2f(u.uRes, w, h);
   gl.uniform2f(u.uJitter, jit[0], jit[1]);
   const ps = f.pos.map(split64);
@@ -2230,12 +2302,13 @@ function relTolerance(de, pos) {
   const mag = Math.max(Math.hypot(...pos), 0.1 * S.bound);
   return uPixFull() * Math.max(de, 0) / mag;
 }
-const precLimit = () => (S.prec !== 0 && dfOK ? REL_DF : REL_FLOAT);
+const precLimit = () => (S.prec !== 0 && dfOK && dfUseful() ? REL_DF : REL_FLOAT);
 // Double-float only where float runs out: it costs several times more per iteration
 function updatePrecision() {
   const rel = relTolerance(sceneDE(), camFrame().pos);
   let want = S.prec === 1;
-  if (S.prec === 2) want = RT.useDF ? rel < 1.5 * REL_FLOAT : rel < REL_FLOAT;
+  // Auto skips df64 when the formula would drop back to float anyway: same picture, several times slower
+  if (S.prec === 2) want = dfUseful() && (RT.useDF ? rel < 1.5 * REL_FLOAT : rel < REL_FLOAT);
   want = want && dfOK;
   if (want !== RT.useDF) { RT.useDF = want; requestCompile(); }
 }
@@ -2283,7 +2356,7 @@ function readout() {
   let mode;
   if (S.view === 0) mode = `to surface <b>${RT.camDE > 0 ? fmtE(RT.camDE) : "inside"}</b> · ${RT.iterEff} it. · precision <b>${RT.useDF ? "df64" : "float"}</b> · derivative <b>${derivJac() ? "Jacobian" : "scalar"}</b>` +
     (S.noclip ? ` · <span class="acc">through walls</span>` : "") +
-    (RT.precWarn ? `<br><span class="acc">precision limit reached (${precLimit() === REL_DF ? "df64" : "float — switch precision to df64 or Auto"})</span>` : "");
+    (RT.precWarn ? `<br><span class="acc">precision limit reached (${precLimit() === REL_DF ? "df64" : !dfUseful() ? "float: the formula has functions that df64 cannot evaluate (exp, sin, norm, fractional powers…)" : "float — switch precision to df64 or Auto"})</span>` : "");
   else {
     const r = V2.ref;
     mode = `zoom <b>×${fmtE(S.bound / V2.scale)}</b> · ` + (RT.prog && RT.prog.pert
