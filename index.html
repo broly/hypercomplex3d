@@ -198,11 +198,30 @@ body.ui-hidden .uishow.awake, .uishow:hover, .uishow:focus-visible { opacity: 0.
 }
 .uitoast kbd { font-family: var(--font-data); font-size: 11px; border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
 
+/* on-screen fly buttons, only on touch-first devices */
+.flypad { position: fixed; left: 12px; bottom: calc(52px + env(safe-area-inset-bottom, 0px)); z-index: 4; display: flex; flex-direction: column; gap: 8px; }
+.flypad button {
+  width: 52px; height: 52px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); color: var(--fg);
+  font: 600 17px var(--font-ui); touch-action: none; user-select: none; -webkit-user-select: none;
+}
+.flypad button:active, .flypad button.on { background: var(--accent); color: var(--accent-ink); }
+body.ui-hidden .flypad { display: none !important; }
+
+/* phones in portrait: the panel starts as a one-line bar, the status shrinks to one line, keyboard hints go away,
+   the tour button and caption sit at the bottom within thumb reach */
 @media (max-width: 520px) {
-  .panel { width: auto; right: 12px; max-height: 55%; }
-  .dock { left: 12px; }
-  .guide { top: auto; bottom: 150px; }
-  .hud, .readout { width: 100%; max-width: none; }
+  .panel { width: auto; left: 8px; right: 8px; top: calc(8px + env(safe-area-inset-top, 0px)); max-height: 58%; padding: 10px 12px 12px; gap: 10px; }
+  .formula { font-size: 17px; }
+  .headbtns { gap: 4px; }
+  .dock { left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }
+  .hud, #gizmo, .readout .lx { display: none; }
+  .readout { width: 100%; max-width: none; padding: 5px 9px; font-size: 10.5px; }
+  .guide { top: auto; right: 8px; bottom: calc(46px + env(safe-area-inset-bottom, 0px)); }
+  .guide-btn { padding: 12px 18px; font-size: 14px; }
+  /* right of the fly buttons, so the tour caption never covers the buttons it points at */
+  .tour { top: auto; bottom: calc(46px + env(safe-area-inset-bottom, 0px)); left: 68px; right: 8px; width: auto; transform: none; }
+  .flypad { left: 8px; bottom: calc(46px + env(safe-area-inset-bottom, 0px)); }
+  .credit { font-size: 9px; }
 }
 </style>
 </head>
@@ -327,6 +346,11 @@ body.ui-hidden .uishow.awake, .uishow:hover, .uishow:focus-visible { opacity: 0.
   </div>
 </div>
 <div class="error" id="err" hidden></div>
+<div class="flypad" id="flypad" hidden>
+  <button type="button" data-key="KeyW" aria-label="Fly forward">▲</button>
+  <button type="button" data-key="KeyS" aria-label="Fly back">▼</button>
+  <button type="button" id="padN" aria-label="Fly through walls" title="Through walls">N</button>
+</div>
 <div class="credit">Hypercomplex Fractals · Artem Selivanov (broly)</div>
 <dialog class="about" id="about" aria-labelledby="aboutTitle">
   <div class="about-head">
@@ -2203,12 +2227,13 @@ function readout() {
       ? (r ? `reference orbit ${r.len} it. · ${r.ms.toFixed(0)} ms · ${V2.P} bits` : "")
       : `<span class="acc">no perturbation: ${RT.pertWhy}</span>`);
   }
+  // first line stays on phones, the rest (.lx) is hidden there
   $("status").innerHTML =
-    `<b>${RT.full.w}×${fh}</b> · ${st}<br>${mode}<br>` +
+    `<span class="l1"><b>${RT.full.w}×${fh}</b> · ${st}</span><span class="lx"><br>${mode}<br>` +
     `one pass ≈ ${est < 1 ? (est * 1000).toFixed(0) + " ms" : est.toFixed(1) + " s"}` +
     (RT.compileMs ? ` · shader ${RT.compileMs.toFixed(0)} ms` : "") +
     (floatFB ? "" : " · 8-bit accumulation") +
-    `<br>GPU: <b>${gpuName.replace(/[<>&]/g, "")}</b>`;
+    `<br>GPU: <b>${gpuName.replace(/[<>&]/g, "")}</b></span>`;
   drawGizmo();
   updatePosField();
   updateHud();
@@ -2348,6 +2373,7 @@ function gotoPos() {
 buttons(view2dBox, [["Reset 2D view", () => { v2Reset(); invalidate(); }]]);
 function updateViewUI() {
   view3dBox.hidden = S.view !== 0; view2dBox.hidden = S.view !== 1;
+  updateFlypad();
   cutBody.hidden = !S.cut && S.view === 0;   // the 2D view always needs the plane controls
   keysNote.innerHTML = S.view === 0
     ? "<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> fly, <kbd>E</kbd>/<kbd>Q</kbd> up/down, <kbd>Shift</kbd> ×4. Speed follows the free path ahead: fast in a tunnel, slow near a wall, no crashing into it. <kbd>N</kbd> flies through walls at a constant speed for the current scale."
@@ -2608,7 +2634,7 @@ window.addEventListener("keydown", (e) => {
   if (e.target.closest && e.target.closest("input, select, textarea")) return;
   if (e.key === "?" && !e.repeat) { openAbout(); e.preventDefault(); return; }
   if (e.code === "KeyH" && !e.repeat) { setUiHidden(!document.body.classList.contains("ui-hidden")); e.preventDefault(); return; }
-  if (e.code === "KeyN" && !e.repeat && S.view === 0) { S.noclip = S.noclip ? 0 : 1; RT.noclipScale = 0; refreshAll(); updateHud(true); e.preventDefault(); return; }
+  if (e.code === "KeyN" && !e.repeat && S.view === 0) { S.noclip = S.noclip ? 0 : 1; RT.noclipScale = 0; refreshAll(); updateHud(true); updateFlypad(); e.preventDefault(); return; }
   if (MOVE_KEYS.has(e.code) || e.code.startsWith("Shift")) {
     keys.add(e.code);
     if (MOVE_KEYS.has(e.code)) e.preventDefault();
@@ -2859,7 +2885,7 @@ async function tourStill(step, text, samples) {
   }
   await tourSleep(1500);
 }
-function tourToggleNoclip() { S.noclip = S.noclip ? 0 : 1; RT.noclipScale = 0; refreshAll(); updateHud(true); }
+function tourToggleNoclip() { S.noclip = S.noclip ? 0 : 1; RT.noclipScale = 0; refreshAll(); updateHud(true); updateFlypad(); }
 const paramGroup = (name) => [...$("paramHost").querySelectorAll(".group")].find((g) => g.querySelector(".label span").textContent === name);
 // Hand-picked destination inside the Mandelbox with scale −3.115, rmin 0.46: position, yaw/pitch in degrees, pivot
 const TOUR_TARGET = { pos: [-1.8855896770559484, 0.9551917720896579, 0.46408523675871816], yaw: -39.6055486065, pitch: 19.3861435258, dist: 0.04134679837017413 };
@@ -2913,13 +2939,13 @@ async function runTour() {
     const path = { dir, total, tS: Math.min(freePath(pos0, dir, total), total) };
     await tourTurn(dir, 1500);
     const travelled = () => { const p = camFrame().pos; return p.reduce((s, x, i) => s + (x - pos0[i]) * dir[i], 0); };
-    tourHighlight($("hud"));
+    tourHighlight($("hud"), $("flypad").querySelector("[data-key=KeyW]"));
     tourSay(3, "Hold W to fly in. Speed follows the distance to the surface, so the camera slows down and never crashes into it.", 0);
     await tourSleep(800);
     await tourFly(() => { tourSay(3, "Hold W to fly in. Speed follows the distance to the surface, so the camera slows down and never crashes into it.", travelled() / path.tS); return travelled() >= path.tS * 0.96 || RT.camDE < 0.03; }, 9000);
 
     // 4: through the wall with N
-    tourHighlight($("hud"), noclipCheck);
+    tourHighlight($("hud"), noclipCheck, $("padN"));
     tourSay(4, "Press N to fly through walls, then hold W (and Shift for ×4) to cross into the cavity.", 0);
     await tourSleep(1200);
     tourToggleNoclip();
@@ -3048,6 +3074,27 @@ window.addEventListener("pointermove", () => {
   clearTimeout(wakeTimer);
   wakeTimer = setTimeout(() => $("uiShow").classList.remove("awake"), 1800);
 });
+
+// ---------------------------------------------------------------- touch: fly buttons, panel folded on phones
+function updateFlypad() {
+  $("flypad").hidden = !(window.matchMedia("(pointer: coarse)").matches && S.view === 0);
+  $("padN").classList.toggle("on", !!S.noclip);
+}
+for (const b of $("flypad").querySelectorAll("[data-key]")) {
+  const code = b.dataset.key;
+  const up = () => { keys.delete(code); if (!keys.size) RT.lastChange = performance.now(); };
+  b.addEventListener("pointerdown", (e) => { e.preventDefault(); if (tour.on) stopTour(); b.setPointerCapture(e.pointerId); keys.add(code); });
+  b.addEventListener("pointerup", up);
+  b.addEventListener("pointercancel", up);
+  b.addEventListener("contextmenu", (e) => e.preventDefault());
+}
+$("padN").addEventListener("click", () => { if (tour.on) stopTour(); tourToggleNoclip(); });
+window.matchMedia("(pointer: coarse)").addEventListener?.("change", updateFlypad);
+// phones start with the panel folded to its header bar; also when a window becomes that narrow
+const narrowScreen = window.matchMedia("(max-width: 520px)");
+const foldForPhone = () => { if (narrowScreen.matches && !$("panel").classList.contains("collapsed")) $("collapse").click(); };
+foldForPhone();
+narrowScreen.addEventListener?.("change", foldForPhone);
 
 // ---------------------------------------------------------------- start
 updateViewUI();
