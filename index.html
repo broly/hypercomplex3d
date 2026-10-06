@@ -185,13 +185,27 @@ input[type=color] { width: 100%; height: 26px; padding: 0 2px; background: rgba(
 }
 /* hide-everything mode: only the fractal and the credit stay */
 body.ui-hidden .panel, body.ui-hidden .dock, body.ui-hidden .guide, body.ui-hidden .tour { display: none !important; }
-.uishow {
-  position: fixed; top: calc(10px + env(safe-area-inset-top, 0px)); right: 10px; z-index: 7; display: none;
-  background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 7px; padding: 6px 10px;
-  font: 500 12px var(--font-ui); cursor: pointer; opacity: 0; transition: opacity 0.4s;
+/* one hide/show toggle, always on screen: on the right edge in landscape, at the bottom centre in portrait */
+.uitoggle {
+  position: fixed; z-index: 7; right: 12px; top: 50%; transform: translateY(-50%);
+  width: 40px; height: 40px; border-radius: 50%; padding: 0; display: grid; place-items: center;
+  background: var(--panel); color: var(--fg); border: 1px solid var(--line); cursor: pointer;
+  transition: opacity 0.4s, background 0.2s;
 }
-body.ui-hidden .uishow { display: block; }
-body.ui-hidden .uishow.awake, .uishow:hover, .uishow:focus-visible { opacity: 0.9; }
+.uitoggle:hover { background: rgba(40, 46, 60, 0.95); }
+.uitoggle svg { width: 20px; height: 20px; }
+.uitoggle .eye-off, body.ui-hidden .uitoggle .eye-on { display: none; }
+body.ui-hidden .uitoggle .eye-off { display: block; }
+/* with the interface hidden it stays where it was, faint until the pointer moves */
+body.ui-hidden .uitoggle { opacity: 0.35; }
+body.ui-hidden .uitoggle.awake, body.ui-hidden .uitoggle:hover, body.ui-hidden .uitoggle:focus-visible { opacity: 0.95; }
+@media (orientation: portrait) {
+  .uitoggle { top: auto; right: auto; left: 50%; bottom: calc(140px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); }
+}
+/* phones in portrait: next to the fly buttons, clear of the tour button on the right */
+@media (orientation: portrait) and (max-width: 520px) {
+  .uitoggle { left: 68px; bottom: calc(46px + env(safe-area-inset-bottom, 0px)); transform: none; width: 48px; height: 48px; }
+}
 .uitoast {
   position: fixed; left: 50%; top: 40%; transform: translateX(-50%); z-index: 7; max-width: calc(100vw - 24px); box-sizing: border-box;
   background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 9px 14px; color: var(--fg); font: 13px var(--font-ui);
@@ -223,6 +237,19 @@ body.ui-hidden .flypad { display: none !important; }
   .flypad { left: 8px; bottom: calc(46px + env(safe-area-inset-bottom, 0px)); }
   .credit { font-size: 9px; }
 }
+/* phones in landscape: the same compact scheme; the panel, when open, uses the full height on the left */
+@media (orientation: landscape) and (max-height: 500px) {
+  .panel { top: 8px; left: 8px; max-height: calc(100% - 16px); padding: 10px 12px 12px; gap: 10px; }
+  .formula { font-size: 17px; }
+  .hud, #gizmo, .readout .lx { display: none; }
+  .dock { right: 8px; bottom: 8px; }
+  .readout { padding: 5px 9px; font-size: 10.5px; }
+  .guide { top: auto; right: 8px; bottom: 44px; }
+  .tour { top: auto; bottom: 44px; left: auto; right: 8px; transform: none; width: min(380px, 55vw); }
+  .flypad { left: 8px; bottom: 8px; }
+  .uitoggle { right: 8px; }
+  .credit { font-size: 9px; }
+}
 </style>
 </head>
 <body>
@@ -233,7 +260,6 @@ body.ui-hidden .flypad { display: none !important; }
     <div class="formula" id="title">z ↦ z² + c</div>
     <div class="headbtns">
       <button class="iconbtn" id="aboutBtn" type="button" title="About (?)" aria-label="About">ⓘ</button>
-      <button class="iconbtn" id="hideUi" type="button" title="Hide the whole interface (H)">Hide UI</button>
       <button class="iconbtn" id="collapse" aria-expanded="true">Collapse</button>
     </div>
   </div>
@@ -370,8 +396,11 @@ body.ui-hidden .flypad { display: none !important; }
     <dt>drag · right drag · wheel</dt><dd>orbit · pan · zoom</dd>
   </dl>
 </dialog>
-<button class="uishow" id="uiShow" type="button" title="Show the interface (H)">Show UI</button>
-<div class="uitoast" id="uiToast" role="status" aria-live="polite" hidden>Interface hidden — press <kbd>H</kbd> or use the corner button to bring it back</div>
+<button class="uitoggle" id="uiToggle" type="button" title="Hide the interface (H)" aria-label="Hide the interface" aria-pressed="false">
+  <svg class="eye-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+  <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3l18 18"/><path d="M10.6 5.1A10.6 10.6 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-3.2 4.1M6.6 6.6C3.8 8.4 2 12 2 12s3.6 7 10 7a9.7 9.7 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>
+</button>
+<div class="uitoast" id="uiToast" role="status" aria-live="polite" hidden>Interface hidden — press <kbd>H</kbd> or tap the eye button to bring it back</div>
 
 <script>
 "use strict";
@@ -3061,19 +3090,22 @@ $("about").addEventListener("click", (e) => {
 let toastTimer = 0, wakeTimer = 0;
 function setUiHidden(hide) {
   document.body.classList.toggle("ui-hidden", hide);
+  const t = $("uiToggle"), label = hide ? "Show the interface" : "Hide the interface";
+  t.setAttribute("aria-label", label); t.title = label + " (H)"; t.setAttribute("aria-pressed", String(hide));
   clearTimeout(toastTimer);
   $("uiToast").hidden = !hide;
   if (hide) toastTimer = setTimeout(() => { $("uiToast").hidden = true; }, 2500);
 }
-$("hideUi").addEventListener("click", () => setUiHidden(true));
-$("uiShow").addEventListener("click", () => setUiHidden(false));
-// the corner button fades in while the pointer moves, so a mouse or touch user can always get back
-window.addEventListener("pointermove", () => {
+$("uiToggle").addEventListener("click", () => setUiHidden(!document.body.classList.contains("ui-hidden")));
+// while hidden, the toggle brightens whenever the pointer moves or a finger touches the screen
+const wakeToggle = () => {
   if (!document.body.classList.contains("ui-hidden")) return;
-  $("uiShow").classList.add("awake");
+  $("uiToggle").classList.add("awake");
   clearTimeout(wakeTimer);
-  wakeTimer = setTimeout(() => $("uiShow").classList.remove("awake"), 1800);
-});
+  wakeTimer = setTimeout(() => $("uiToggle").classList.remove("awake"), 1800);
+};
+window.addEventListener("pointermove", wakeToggle);
+window.addEventListener("pointerdown", wakeToggle);
 
 // ---------------------------------------------------------------- touch: fly buttons, panel folded on phones
 function updateFlypad() {
@@ -3091,9 +3123,14 @@ for (const b of $("flypad").querySelectorAll("[data-key]")) {
 $("padN").addEventListener("click", () => { if (tour.on) stopTour(); tourToggleNoclip(); });
 window.matchMedia("(pointer: coarse)").addEventListener?.("change", updateFlypad);
 // phones start with the panel folded to its header bar; also when a window becomes that narrow
-const narrowScreen = window.matchMedia("(max-width: 520px)");
-const foldForPhone = () => { if (narrowScreen.matches && !$("panel").classList.contains("collapsed")) $("collapse").click(); };
-foldForPhone();
+const narrowScreen = window.matchMedia("(max-width: 520px), (orientation: landscape) and (max-height: 500px)");
+// a page can be laid out for a moment at a degenerate size before its real one: ignore those, and make the
+// first check after the first frame
+const foldForPhone = () => {
+  if (window.innerWidth < 200 || window.innerHeight < 200) return;
+  if (narrowScreen.matches && !$("panel").classList.contains("collapsed")) $("collapse").click();
+};
+requestAnimationFrame(() => requestAnimationFrame(foldForPhone));
 narrowScreen.addEventListener?.("change", foldForPhone);
 
 // ---------------------------------------------------------------- start
