@@ -311,7 +311,8 @@ body.ui-hidden .flypad { display: none !important; }
           <p>Functions: <code>exp log sqrt sin cos tan sinh cosh tanh atan</code> (extended from the complex plane),
           <code>abs</code> (absolute value of each component), <code>conj</code>, <code>norm</code> = |q|, <code>re</code>.</p>
           <p>Folds and Mandelbulb: <code>boxfold(z, r)</code> reflects components beyond ±r,
-          <code>spherefold(z, rmin, rmax)</code> is a sphere inversion, <code>bulb(z, n)</code> is the Mandelbulb "triplex" power over the axes 1, i, j.
+          <code>spherefold(z, rmin, rmax)</code> is a sphere inversion, <code>bulb(z, n)</code> is the Mandelbulb "triplex" power over the axes 1, i, j (angle from the j axis),
+          <code>bulbw(z, n)</code> is Daniel White's original 2007 variant (latitude angle, negated j; trig-free for n = 2).
           Mandelbox: <code>2·spherefold(boxfold(z, 1), 0.5, 1) + c</code>.</p>
           <p>Hybrid: several formulas, each repeated for the given number of iterations, then the next one, in a loop.</p>
           <p>Parameters: any other name is a real parameter with its own slider, e.g. <code>scale spherefold(boxfold(z, fold), rmin, rmax) + c</code>.
@@ -493,13 +494,14 @@ const PRESETS = [
   { name: "Mandelbox, scale −1.5", f: "scale spherefold(boxfold(z, fold), rmin, rmax) + c", params: { scale: -1.5, fold: 1, rmin: 0.5, rmax: 1 }, alg: 0, julia: 0, z0: [0, 0, 0, 0], bound: 3.7, bail: 100, iter: 20, cam: [0, 0, 0, 8] },
   { name: "Hybrid: Mandelbox −1.5 ×2 → Mandelbulb² ×1", slots: [{ f: "scale spherefold(boxfold(z, fold), rmin, rmax) + c", n: 2 }, { f: "bulb(z, power) + c", n: 1 }], params: { scale: -1.5, fold: 1, rmin: 0.5, rmax: 1, power: 2 }, alg: 0, julia: 0, z0: [0, 0, 0, 0], bound: 3.7, bail: 100, iter: 20, cam: [0, 0, 0, 8] },
   { name: "Hybrid: quaternion z² + c → Mandelbox −1.5", slots: [{ f: "z^2 + c", n: 1 }, { f: "scale spherefold(boxfold(z, fold), rmin, rmax) + c", n: 1 }], params: { scale: -1.5, fold: 1, rmin: 0.5, rmax: 1 }, alg: 0, julia: 0, z0: [0, 0, 0, 0], bound: 3.7, bail: 100, iter: 20, cam: [0, 0, 0, 8] },
+  { name: "White's quadratic Mandelbulb (2007 triplex)", f: "bulbw(z, power) + c", params: { power: 2 }, alg: 0, julia: 0, z0: [0, 0, 0, 0], bound: 2.1, iter: 24, cam: [-0.5, 0, 0, 4.4] },
 ];
 
 // ---------------------------------------------------------------- formula parser → AST over 4-component constants
 const FN = { exp: "exp", log: "log", ln: "log", sqrt: "sqrt", sin: "sin", cos: "cos", tan: "tan", sinh: "sinh", cosh: "cosh", tanh: "tanh",
-  atan: "atan", arctan: "atan", abs: "abs", conj: "conj", norm: "norm", re: "re", boxfold: "boxfold", spherefold: "spherefold", bulb: "bulb" };
+  atan: "atan", arctan: "atan", abs: "abs", conj: "conj", norm: "norm", re: "re", boxfold: "boxfold", spherefold: "spherefold", bulb: "bulb", bulbw: "bulbw" };
 // space transforms with numeric parameters and their defaults
-const FOLDS = { boxfold: [1], spherefold: [0.5, 1], bulb: [8] };
+const FOLDS = { boxfold: [1], spherefold: [0.5, 1], bulb: [8], bulbw: [2] };
 const CONSTS = { i: [0, 1, 0, 0], j: [0, 0, 1, 0], k: [0, 0, 0, 1], pi: [Math.PI, 0, 0, 0], "π": [Math.PI, 0, 0, 0], e: [Math.E, 0, 0, 0] };
 const fnName = (n) => FN[n] || FN[n.toLowerCase()];
 
@@ -627,7 +629,7 @@ function zDegree(n) {
     case "v": return n.n === "z" ? 1 : 0;
     case "neg": return zDegree(n.a);
     case "p": return 0;
-    case "fn": return n.f === "bulb" ? argNum(n.p[0]) * zDegree(n.a) : ["abs", "conj", "norm", "re", "boxfold", "spherefold"].includes(n.f) ? zDegree(n.a) : NaN;
+    case "fn": return n.f === "bulb" || n.f === "bulbw" ? argNum(n.p[0]) * zDegree(n.a) : ["abs", "conj", "norm", "re", "boxfold", "spherefold"].includes(n.f) ? zDegree(n.a) : NaN;
   }
   const a = zDegree(n.a), b = zDegree(n.b);
   if (n.op === "+" || n.op === "-") return Math.max(a, b);
@@ -818,6 +820,26 @@ vec4 f_spherefold(vec4 a, float mn, float mx) { return a * sfK(dot(a, a), mn, mx
       // the triplex power is not conformal: Jacobian columns by central differences
       j: `vec4 bulbD(vec4 v, vec4 d, float n) { float l = length(d); if (l == 0.0) return vec4(0.0); float s = 1e-3 * max(length(v), 1e-20) / l; return (f_bulb(v + d * s, n) - f_bulb(v - d * s, n)) / (2.0 * s); }
 J f_bulb(J a, float n) { vec4 v = VHI(a.v); return J(f_bulb(a.v, n), ${J3((i) => `bulbD(v, a.d[${i}], n)`)}); }`,
+    },
+    // Daniel White's original triplex power (2007): longitude θ = atan2(y, x), latitude φ = asin(z / r),
+    // r^n (cos nθ cos nφ, sin nθ cos nφ, −sin nφ). For n = 2 the trig-free form of the same map.
+    bulbw: {
+      v: `vec4 f_bulbw(vec4 a, float n) {
+  float r = length(a.xyz);
+  if (r < 1e-30) return vec4(0.0);
+  if (n == 2.0) {
+    float q = dot(a.xy, a.xy);
+    if (q == 0.0) return vec4(-a.z * a.z, 0.0, 0.0, a.w * r);
+    float k = 1.0 - a.z * a.z / q;
+    return vec4((a.x * a.x - a.y * a.y) * k, 2.0 * a.x * a.y * k, -2.0 * a.z * sqrt(q), a.w * r);
+  }
+  float th = atan(a.y, a.x) * n, ph = asin(clamp(a.z / r, -1.0, 1.0)) * n, rn = pow(r, n);
+  return vec4(rn * cos(th) * cos(ph), rn * sin(th) * cos(ph), -rn * sin(ph), a.w * rn / r);
+}`,
+      q: `Q f_bulbw(Q a, float n) { return dlift(f_bulbw(a.hi, n)); }`,
+      s: `S f_bulbw(S a, float n) { return S(f_bulbw(a.v, n), a.d * n * pow(max(length(VHI(a.v)), 1e-30), n - 1.0)); }`,
+      j: `vec4 bulbwD(vec4 v, vec4 d, float n) { float l = length(d); if (l == 0.0) return vec4(0.0); float s = 1e-3 * max(length(v), 1e-20) / l; return (f_bulbw(v + d * s, n) - f_bulbw(v - d * s, n)) / (2.0 * s); }
+J f_bulbw(J a, float n) { vec4 v = VHI(a.v); return J(f_bulbw(a.v, n), ${J3((i) => `bulbwD(v, a.d[${i}], n)`)}); }`,
     },
   }[name];
   return [G.v, df && G.q, G.s, jac && G.j].filter(Boolean).join("\n") + "\n";
@@ -1611,7 +1633,7 @@ function requestCompile() {
   RT.hasFold = asts.some((a) => usesFn(a, ["boxfold", "spherefold"]));
   // the Jacobian estimate is exact for smooth algebraic formulas but overshoots across folds, abs and the
   // non-conformal Mandelbulb power; there the scalar bound is both more accurate and cheaper
-  RT.nonSmooth = asts.some((a) => usesFn(a, ["boxfold", "spherefold", "abs", "bulb", "norm"]));
+  RT.nonSmooth = asts.some((a) => usesFn(a, ["boxfold", "spherefold", "abs", "bulb", "bulbw", "norm"]));
   // smooth coloring needs the growth rate per iteration: geometric mean of the slot degrees over one period
   const degs = RT.sched.map(zDegree), d = Math.exp(degs.reduce((a, x) => a + Math.log(Math.max(x, 1)), 0) / degs.length);
   RT.deg = degs.every(isFinite) && d > 1.01 ? d : 2;
@@ -1771,7 +1793,7 @@ function evalS(n, z, c, A) {
         const k = r2 < mn * mn ? (mx * mx) / (mn * mn) : r2 < mx * mx ? (mx * mx) / r2 : 1;
         return { v: a.v.map((x) => x * k), d: a.d * k };
       }
-      if (n.f === "bulb") { const m = argNum(n.p[0]); return { v: bulbN(a.v, m), d: a.d * m * Math.max(Math.hypot(...a.v), 1e-300) ** (m - 1) }; }
+      if (n.f === "bulb" || n.f === "bulbw") { const m = argNum(n.p[0]); return { v: (n.f === "bulb" ? bulbN : bulbW)(a.v, m), d: a.d * m * Math.max(Math.hypot(...a.v), 1e-300) ** (m - 1) }; }
       const [v, g] = A.fn(CFD[n.f], a.v);
       return { v, d: a.d * g };
     }
@@ -1817,6 +1839,18 @@ function bulbN(a, n) {
   if (r < 1e-300) return [0, 0, 0, 0];
   const th = Math.acos(Math.min(1, Math.max(-1, a[2] / r))) * n, ph = Math.atan2(a[1], a[0]) * n, rn = r ** n;
   return [rn * Math.sin(th) * Math.cos(ph), rn * Math.sin(th) * Math.sin(ph), rn * Math.cos(th), a[3] * rn / r];
+}
+function bulbW(a, n) {
+  const r = Math.hypot(a[0], a[1], a[2]);
+  if (r < 1e-300) return [0, 0, 0, 0];
+  if (n === 2) {
+    const q = a[0] * a[0] + a[1] * a[1];
+    if (q === 0) return [-a[2] * a[2], 0, 0, a[3] * r];
+    const k = 1 - (a[2] * a[2]) / q;
+    return [(a[0] * a[0] - a[1] * a[1]) * k, 2 * a[0] * a[1] * k, -2 * a[2] * Math.sqrt(q), a[3] * r];
+  }
+  const th = Math.atan2(a[1], a[0]) * n, ph = Math.asin(Math.min(1, Math.max(-1, a[2] / r))) * n, rn = r ** n;
+  return [rn * Math.cos(th) * Math.cos(ph), rn * Math.sin(th) * Math.cos(ph), -rn * Math.sin(ph), a[3] * rn / r];
 }
 const linDE = () => S.deMode === 2 || (S.deMode === 0 && RT.hasFold);
 const camDE = () => deAt(camFrame().pos);
@@ -2455,7 +2489,7 @@ cutBody.append(el("div", "note", "The section is drawn by iterating the formula 
 
 const hostQ = $("hostQuality");
 select(hostQ, bind("deMode", { label: "Distance estimate", items: [[0, "Auto (linear if there are folds)"], [1, "Potential: 0.5·r·ln r / |dr| (polynomials)"], [2, "Linear: r / |dr| (Mandelbox, KIFS)"]] }));
-seg(hostQ, bind("deriv", { label: "Derivative", recompile: true, items: [[2, "Auto", "Scalar if the formula has folds, abs, bulb or norm; Jacobian otherwise"], [0, "Jacobian", "Exact gradient of the potential: best for smooth quaternion and bicomplex formulas"], [1, "Scalar", "Conservative upper bound of |dz|: reliable for folds, abs and the Mandelbulb"]] }));
+seg(hostQ, bind("deriv", { label: "Derivative", recompile: true, items: [[2, "Auto", "Scalar if the formula has folds, abs, bulb, bulbw or norm; Jacobian otherwise"], [0, "Jacobian", "Exact gradient of the potential: best for smooth quaternion and bicomplex formulas"], [1, "Scalar", "Conservative upper bound of |dz|: reliable for folds, abs and the Mandelbulb"]] }));
 slider(hostQ, bind("iter", { label: "Formula iterations (3D)", min: 1, max: 200, log: true, int: true }));
 check(hostQ, bind("iterAuto", { label: "Add iterations with zoom depth" }));
 slider(hostQ, bind("iterPerDec", { label: "Iterations per decade of zoom", min: 1, max: 30, step: 0.5, fmt: (v) => v.toFixed(1) }));
