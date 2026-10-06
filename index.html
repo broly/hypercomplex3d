@@ -2979,10 +2979,13 @@ async function runTour() {
     tourSay(1, "Formulas start from presets. Here: Mandelbox with scale −1.5.", 0);
     tourHighlight($("preset"));
     await tourSleep(1200);
-    S.view = 0; S.cut = false; S.noclip = 0; S.lightMode = 0; S.shadows = 1; S.flySpeed = 1;
+    // start from a clean slate: every setting back to its default (light, focus, fog, colours, traps, …);
+    // only the viewer's own speed settings are kept
+    sceneSel.value = ""; $("sceneNote").textContent = "";
+    setState({});
     presetSel.value = "13"; applyPreset(PRESETS[13]);
-    S.cut = false; updateViewUI(); refreshAll(); requestCompile();
-    lampBox.hidden = true;
+    S.view = 0; S.cut = false; S.noclip = 0;
+    updateViewUI(); refreshAll(); requestCompile();
     await tourStill(1, "Rendering a still frame of the preset…", 3);
 
     // 2: parameters
