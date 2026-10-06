@@ -1,0 +1,3058 @@
+<!doctype html>
+<!--
+  Hypercomplex Fractals
+  by Artem Selivanov (broly) — https://github.com/broly
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="author" content="Artem Selivanov (broly)">
+<title>Hypercomplex Fractals</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=STIX+Two+Text:ital,wght@0,400;0,600;1,400;1,600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: full-bleed WebGL canvas, a scrollable instrument panel top-left, status readout with an axis gizmo bottom-right. Single dark look by choice. */
+:root {
+  --ink: #0b0d12;
+  --panel: rgba(14, 17, 24, 0.88);
+  --line: rgba(170, 182, 210, 0.16);
+  --fg: #e7e9ef;
+  --muted: #8d95a8;
+  --accent: #e8b65a;
+  --accent-ink: #1a1408;
+  --bad: #ff9c8f;
+  --ax-x: #e27d6c;
+  --ax-y: #8fc77a;
+  --ax-z: #6fa3e0;
+  --font-math: "STIX Two Text", "Cambria Math", "Times New Roman", serif;
+  --font-ui: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-data: "IBM Plex Mono", ui-monospace, Consolas, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; background: var(--ink); color: var(--fg); margin: 0; overflow: hidden; }
+body { font-family: var(--font-ui); font-size: 13px; }
+#view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; background: var(--ink); outline: none; }
+#view.dragging { cursor: grabbing; }
+
+.panel {
+  position: fixed; top: calc(12px + env(safe-area-inset-top, 0px)); left: 12px;
+  width: 316px; max-width: calc(100vw - 24px); max-height: calc(100% - 24px - env(safe-area-inset-top, 0px)); overflow-y: auto;
+  background: var(--panel); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--line); border-radius: 10px;
+  display: flex; flex-direction: column; gap: 12px; padding: 14px 16px 16px; box-sizing: border-box;
+}
+.panel.collapsed > :not(.head) { display: none; }
+.head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.formula { font-family: var(--font-math); font-size: 21px; font-style: italic; letter-spacing: 0.01em; overflow-wrap: anywhere; }
+.iconbtn { background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 6px; padding: 2px 8px; font: 12px var(--font-ui); cursor: pointer; flex: none; }
+.iconbtn:hover { color: var(--fg); }
+.desc { color: var(--muted); line-height: 1.45; margin: -4px 0 0; text-wrap: pretty; }
+
+[hidden] { display: none !important; }
+.sec { border-top: 1px solid var(--line); padding-top: 10px; }
+.sec > summary { cursor: pointer; font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--fg); font-weight: 600; list-style: none; display: flex; justify-content: space-between; }
+.sec > summary::-webkit-details-marker { display: none; }
+.sec > summary::after { content: "+"; color: var(--muted); font-weight: 400; }
+.sec[open] > summary::after { content: "−"; }
+.sec > .body, .body { display: flex; flex-direction: column; gap: 11px; }
+.sec > .body { margin-top: 10px; }
+.group { display: flex; flex-direction: column; gap: 5px; }
+.label { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.09em; color: var(--muted); display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.vnum { width: 76px; background: transparent; border: 0; border-bottom: 1px dashed transparent; color: var(--fg); font: 11.5px var(--font-data); text-align: right; padding: 0; text-transform: none; letter-spacing: 0; }
+.vnum:hover, .vnum:focus { border-bottom-color: var(--line); outline: none; }
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; border: 1px solid var(--line); border-radius: 7px; overflow: hidden; }
+.seg button { background: transparent; color: var(--fg); border: 0; border-left: 1px solid var(--line); padding: 6px 4px; font: 12.5px var(--font-ui); cursor: pointer; min-width: 0; }
+.seg button:first-child { border-left: 0; }
+.seg button:hover { background: rgba(255,255,255,0.05); }
+.seg button.on { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.seg.math button { font-family: var(--font-math); font-size: 17px; font-style: italic; padding: 3px 0 4px; }
+.seg button:focus-visible, .iconbtn:focus-visible, .btn:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+input[type=range] { width: 100%; accent-color: var(--accent); margin: 0; }
+.num { flex: 1; background: rgba(0,0,0,0.3); border: 1px solid var(--line); border-radius: 6px; color: var(--fg); padding: 5px 7px; font: 12px var(--font-data); width: 100%; box-sizing: border-box; }
+select.num { font-family: var(--font-ui); }
+.expr { font-size: 14px; padding: 7px 8px; }
+.expr.bad { border-color: #b4483f; }
+.exprmsg { font: 11.5px/1.45 var(--font-data); color: var(--bad); white-space: pre-wrap; }
+.exprmsg:empty { display: none; }
+.badge { color: var(--accent) !important; font-family: var(--font-ui); text-transform: none; letter-spacing: 0; }
+.btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn { flex: 1; background: rgba(255,255,255,0.06); border: 1px solid var(--line); color: var(--fg); border-radius: 7px; padding: 7px 8px; font: 500 12.5px var(--font-ui); cursor: pointer; }
+.btn:hover { background: rgba(255,255,255,0.11); }
+.check { display: flex; gap: 8px; align-items: center; color: var(--fg); cursor: pointer; }
+.check input { accent-color: var(--accent); margin: 0; }
+.note { color: var(--muted); font-size: 11.5px; line-height: 1.45; }
+.note b { color: var(--fg); font-weight: 500; font-family: var(--font-data); }
+.note kbd { font-family: var(--font-data); font-size: 10.5px; border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; color: var(--fg); }
+.note.warn { color: var(--bad); }
+.help { color: var(--muted); font-size: 11.5px; line-height: 1.5; }
+.help summary { cursor: pointer; color: var(--fg); }
+.help p { margin: 6px 0 0; }
+.help code { font-family: var(--font-data); font-size: 11px; color: var(--fg); }
+textarea.num { resize: vertical; font-size: 11px; }
+input[type=color] { width: 100%; height: 26px; padding: 0 2px; background: rgba(0,0,0,0.3); border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+.slot { display: flex; gap: 6px; align-items: center; }
+.slot .expr { flex: 1; min-width: 0; }
+.slot .rep { width: 46px; flex: none; padding: 6px 4px; text-align: center; }
+.slot .x { color: var(--muted); font-family: var(--font-math); font-style: italic; }
+.hint { color: var(--muted); font-size: 11.5px; line-height: 1.5; border-top: 1px solid var(--line); padding-top: 10px; }
+
+/* guided tour: a glowing launcher top-right, a caption card top-centre, pulsing outline on the control in use */
+.guide { position: fixed; top: calc(12px + env(safe-area-inset-top, 0px)); right: 12px; display: flex; align-items: center; gap: 6px; z-index: 5; }
+.guide-btn {
+  background: linear-gradient(135deg, #f6d27a, #e8935a); color: var(--accent-ink); font: 600 13px var(--font-ui);
+  border: 0; border-radius: 999px; padding: 9px 16px; cursor: pointer; animation: guidepulse 1.8s ease-in-out infinite;
+}
+.guide-btn:hover { filter: brightness(1.08); }
+.guide-x { background: var(--panel); color: var(--muted); border: 1px solid var(--line); border-radius: 50%; width: 26px; height: 26px; font: 15px/1 var(--font-ui); cursor: pointer; }
+.guide-x:hover { color: var(--fg); }
+@keyframes guidepulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(232, 182, 90, 0.75), 0 0 16px rgba(232, 182, 90, 0.45); }
+  50% { box-shadow: 0 0 0 9px rgba(232, 182, 90, 0), 0 0 30px rgba(232, 182, 90, 0.95); }
+}
+.tour {
+  position: fixed; top: calc(12px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); z-index: 6;
+  width: min(440px, calc(100vw - 24px)); box-sizing: border-box; padding: 10px 14px 12px;
+  background: var(--panel); border: 1px solid rgba(232, 182, 90, 0.6); border-radius: 10px; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+}
+.tour-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.tour-step { font: 600 11px var(--font-ui); letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+.tour-text { margin-top: 4px; line-height: 1.45; color: var(--fg); text-wrap: pretty; }
+.tour-bar { margin-top: 8px; height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; }
+#tourBar { height: 100%; width: 0; background: var(--accent); transition: width 0.2s; }
+.tour-hl { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; animation: hlpulse 1.1s ease-in-out infinite; }
+@keyframes hlpulse { 50% { outline-color: rgba(232, 182, 90, 0.2); } }
+@media (prefers-reduced-motion: reduce) { .guide-btn, .tour-hl { animation: none; } }
+
+/* bottom-right dock: flight-mode HUD next to the status readout; they stack on narrow screens */
+.dock {
+  position: fixed; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  display: flex; flex-wrap: wrap-reverse; justify-content: flex-end; align-items: flex-end; gap: 8px;
+  max-width: calc(100vw - 24px); pointer-events: none;
+}
+.hud {
+  display: flex; gap: 8px; align-items: flex-start; max-width: 270px; box-sizing: border-box;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px;
+  font: 11.5px/1.5 var(--font-ui); color: var(--muted);
+}
+.hud .dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex: none; background: var(--ax-y); }
+.hud b { color: var(--fg); font-weight: 600; }
+.hud .now { color: var(--fg); }
+.hud kbd { font-family: var(--font-data); font-size: 10.5px; border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; color: var(--fg); }
+.hud.noclip { border-color: rgba(232, 182, 90, 0.55); }
+.hud.noclip .dot { background: var(--accent); }
+.hud.warn .now { color: var(--bad); }
+.hud.flash { animation: hudflash 0.7s ease-out; }
+@keyframes hudflash { from { box-shadow: 0 0 0 3px var(--accent); } to { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); } }
+@media (prefers-reduced-motion: reduce) { .hud.flash { animation: none; } }
+.readout {
+  display: flex; gap: 10px; align-items: center;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px;
+  font: 11.5px/1.55 var(--font-data); color: var(--muted); font-variant-numeric: tabular-nums; pointer-events: none;
+  max-width: calc(100vw - 24px); box-sizing: border-box;
+}
+.readout b { color: var(--fg); font-weight: 500; }
+.readout .acc { color: var(--accent); }
+#gizmo { width: 64px; height: 64px; flex: none; }
+#gizmo text { font: italic 13px var(--font-math); }
+.error { position: fixed; inset: auto 12px 12px 12px; background: #3a1212; color: #ffd9d9; border: 1px solid #7a2a2a; border-radius: 8px; padding: 10px 12px; font: 12px var(--font-data); white-space: pre-wrap; max-height: 40%; overflow: auto; }
+
+.headbtns { display: flex; gap: 6px; flex: none; }
+.byline { margin: -6px 0 0; color: var(--muted); font-size: 11px; }
+.byline a, .about a { color: var(--accent); text-decoration: none; }
+.byline a:hover, .about a:hover { text-decoration: underline; }
+.about {
+  width: min(460px, calc(100vw - 32px)); box-sizing: border-box; padding: 16px 18px;
+  background: #11141b; color: var(--fg); border: 1px solid var(--line); border-radius: 12px;
+  font: 13px/1.5 var(--font-ui); box-shadow: 0 16px 50px rgba(0, 0, 0, 0.6);
+}
+.about::backdrop { background: rgba(5, 6, 9, 0.6); }
+.about-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.about h2 { margin: 0; font: italic 600 22px var(--font-math); }
+.about h3 { margin: 14px 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
+.about p { margin: 8px 0 0; color: var(--muted); text-wrap: pretty; }
+.about-author { color: var(--fg) !important; }
+.about-author b { font-weight: 600; }
+.about-keys { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; }
+.about-keys dt { color: var(--fg); white-space: nowrap; }
+.about-keys dd { margin: 0; color: var(--muted); }
+.about kbd { font-family: var(--font-data); font-size: 10.5px; border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; margin-right: 2px; }
+/* authorship: always on, tiny, below the bottom dock */
+.credit {
+  position: fixed; left: 50%; bottom: 1px; transform: translateX(-50%); z-index: 1; white-space: nowrap;
+  font: 10px/1.2 var(--font-ui); color: rgba(141, 149, 168, 0.55); pointer-events: none;
+}
+/* hide-everything mode: only the fractal and the credit stay */
+body.ui-hidden .panel, body.ui-hidden .dock, body.ui-hidden .guide, body.ui-hidden .tour { display: none !important; }
+.uishow {
+  position: fixed; top: calc(10px + env(safe-area-inset-top, 0px)); right: 10px; z-index: 7; display: none;
+  background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 7px; padding: 6px 10px;
+  font: 500 12px var(--font-ui); cursor: pointer; opacity: 0; transition: opacity 0.4s;
+}
+body.ui-hidden .uishow { display: block; }
+body.ui-hidden .uishow.awake, .uishow:hover, .uishow:focus-visible { opacity: 0.9; }
+.uitoast {
+  position: fixed; left: 50%; top: 40%; transform: translateX(-50%); z-index: 7; max-width: calc(100vw - 24px); box-sizing: border-box;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 9px 14px; color: var(--fg); font: 13px var(--font-ui);
+}
+.uitoast kbd { font-family: var(--font-data); font-size: 11px; border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+
+@media (max-width: 520px) {
+  .panel { width: auto; right: 12px; max-height: 55%; }
+  .dock { left: 12px; }
+  .guide { top: auto; bottom: 150px; }
+  .hud, .readout { width: 100%; max-width: none; }
+}
+</style>
+</head>
+<body>
+<canvas id="view" tabindex="0"></canvas>
+
+<aside class="panel" id="panel">
+  <div class="head">
+    <div class="formula" id="title">z ↦ z² + c</div>
+    <div class="headbtns">
+      <button class="iconbtn" id="aboutBtn" type="button" title="About (?)" aria-label="About">ⓘ</button>
+      <button class="iconbtn" id="hideUi" type="button" title="Hide the whole interface (H)">Hide UI</button>
+      <button class="iconbtn" id="collapse" aria-expanded="true">Collapse</button>
+    </div>
+  </div>
+  <p class="desc" id="desc"></p>
+  <p class="byline">by Artem Selivanov (<a href="https://github.com/broly" target="_blank" rel="noopener">broly</a>)</p>
+
+  <details class="sec" open>
+    <summary>Scenes</summary>
+    <div class="body">
+      <select class="num" id="scene" aria-label="Scene"></select>
+      <div class="note" id="sceneNote"></div>
+      <div class="btns">
+        <button class="btn" id="sceneCopy" type="button">Copy scene</button>
+        <button class="btn" id="sceneLoadBtn" type="button">Paste scene</button>
+      </div>
+      <div class="btns">
+        <button class="btn" id="linkCopy" type="button">Copy link</button>
+        <button class="btn" id="tourStart2" type="button">▶ Guided tour</button>
+      </div>
+      <div class="note">The address bar always holds a link to the current view, with every setting.</div>
+      <div class="body" id="sceneLoadBox" hidden>
+        <textarea class="num" id="sceneText" rows="4" spellcheck="false" aria-label="Scene JSON" placeholder="Paste scene JSON here"></textarea>
+        <div class="btns"><button class="btn" id="sceneApply" type="button">Apply</button></div>
+      </div>
+    </div>
+  </details>
+
+  <details class="sec" open>
+    <summary>View &amp; camera</summary>
+    <div class="body" id="hostView"></div>
+  </details>
+
+  <details class="sec" open>
+    <summary>Formula</summary>
+    <div class="body">
+      <div class="group">
+        <div class="label"><span>Iteration step z ↦</span><span class="badge" id="compileBadge"></span></div>
+        <div class="body" id="slots" style="gap:6px"></div>
+        <div class="btns"><button class="btn" id="addSlot" type="button">+ add formula to hybrid</button></div>
+        <select class="num" id="preset" aria-label="Preset"></select>
+        <div class="exprmsg" id="exprMsg" role="status"></div>
+        <div class="body" id="paramHost" hidden></div>
+        <details class="help">
+          <summary>Formula syntax</summary>
+          <p>Variables <code>z</code> and <code>c</code>, units <code>i j k</code>, constants <code>pi e</code>.
+          Operators <code>+ − * / ^</code>; the multiplication sign can be omitted: <code>2z</code>, <code>c z (1 − z)</code>, <code>0.3j</code>.</p>
+          <p>Quaternions do not commute, so the order of factors matters: <code>c z</code> ≠ <code>z c</code>, <code>a/b</code> = <code>a·b⁻¹</code>.</p>
+          <p>Powers: integer ones exactly (<code>z^5</code>, <code>z^-2</code>), fractional ones via polar form (<code>z^2.5</code>), hypercomplex ones via <code>exp(log(a)·b)</code> (<code>z^z</code>).</p>
+          <p>Functions: <code>exp log sqrt sin cos tan sinh cosh tanh atan</code> (extended from the complex plane),
+          <code>abs</code> (absolute value of each component), <code>conj</code>, <code>norm</code> = |q|, <code>re</code>.</p>
+          <p>Folds and Mandelbulb: <code>boxfold(z, r)</code> reflects components beyond ±r,
+          <code>spherefold(z, rmin, rmax)</code> is a sphere inversion, <code>bulb(z, n)</code> is the Mandelbulb "triplex" power over the axes 1, i, j.
+          Mandelbox: <code>2·spherefold(boxfold(z, 1), 0.5, 1) + c</code>.</p>
+          <p>Hybrid: several formulas, each repeated for the given number of iterations, then the next one, in a loop.</p>
+          <p>Parameters: any other name is a real parameter with its own slider, e.g. <code>scale spherefold(boxfold(z, fold), rmin, rmax) + c</code>.
+          Sliders update the image without recompiling. A parameter also works as a fold argument or a power (<code>z^p</code>).</p>
+          <p>Deep zoom: arithmetic and integer powers are computed in double precision, functions such as <code>exp sin …</code> stay in float.
+          2D perturbation works for formulas made of <code>+ − × ÷</code>, integer powers and <code>abs conj norm re</code>.</p>
+        </details>
+      </div>
+      <div class="body" id="hostFormula"></div>
+    </div>
+  </details>
+
+  <details class="sec" open>
+    <summary>4D → 3D slice</summary>
+    <div class="body" id="hostSlice"></div>
+  </details>
+
+  <details class="sec" open>
+    <summary>Cutting plane</summary>
+    <div class="body" id="hostCut"></div>
+  </details>
+
+  <details class="sec">
+    <summary>Quality &amp; speed</summary>
+    <div class="body" id="hostQuality"></div>
+  </details>
+
+  <details class="sec">
+    <summary>Color &amp; light</summary>
+    <div class="body" id="hostLook"></div>
+  </details>
+
+  <div class="btns">
+    <button class="btn" id="resetCam">Reset camera</button>
+    <button class="btn" id="save">Save PNG</button>
+  </div>
+
+  <div class="hint" id="hint"></div>
+</aside>
+
+<div class="guide" id="guide">
+  <button class="guide-btn" id="guideBtn" type="button">▶ Guided tour</button>
+  <button class="guide-x" id="guideHide" type="button" title="Hide (the tour stays in Scenes)" aria-label="Hide the guided tour button">×</button>
+</div>
+<div class="tour" id="tour" role="status" aria-live="polite" hidden>
+  <div class="tour-head"><span class="tour-step" id="tourStep"></span><button class="iconbtn" id="tourStop" type="button">Stop</button></div>
+  <div class="tour-text" id="tourText"></div>
+  <div class="tour-bar"><div id="tourBar"></div></div>
+</div>
+<div class="dock">
+  <div class="hud" id="hud" role="status" aria-live="polite" hidden>
+    <span class="dot" aria-hidden="true"></span>
+    <div><b id="hudMode"></b><div class="now" id="hudNow"></div><div id="hudHint"></div></div>
+  </div>
+  <div class="readout" id="readout">
+    <svg id="gizmo" viewBox="-32 -32 64 64" aria-hidden="true"></svg>
+    <div id="status"></div>
+  </div>
+</div>
+<div class="error" id="err" hidden></div>
+<div class="credit">Hypercomplex Fractals · Artem Selivanov (broly)</div>
+<dialog class="about" id="about" aria-labelledby="aboutTitle">
+  <div class="about-head">
+    <h2 id="aboutTitle">Hypercomplex Fractals</h2>
+    <button class="iconbtn" id="aboutClose" type="button">Close</button>
+  </div>
+  <p class="about-author">by <b>Artem Selivanov (broly)</b><br>
+    <a href="https://github.com/broly" target="_blank" rel="noopener">github.com/broly</a></p>
+  <p>Real-time explorer of 4D hypercomplex fractals (quaternion and bicomplex) and Mandelbox / Mandelbulb hybrids, sliced to 3D and ray-marched in WebGL 2.
+    Any formula you type is compiled to a shader with automatic differentiation for the distance estimate; deep zoom uses double-float arithmetic in 3D and perturbation theory in the 2D slice.</p>
+  <h3>Keys</h3>
+  <dl class="about-keys">
+    <dt><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> <kbd>E</kbd><kbd>Q</kbd></dt><dd>fly (Shift ×4)</dd>
+    <dt><kbd>N</kbd></dt><dd>through walls / adaptive speed</dd>
+    <dt><kbd>H</kbd></dt><dd>hide or show the interface</dd>
+    <dt><kbd>?</kbd></dt><dd>this window</dd>
+    <dt>drag · right drag · wheel</dt><dd>orbit · pan · zoom</dd>
+  </dl>
+</dialog>
+<button class="uishow" id="uiShow" type="button" title="Show the interface (H)">Show UI</button>
+<div class="uitoast" id="uiToast" role="status" aria-live="polite" hidden>Interface hidden — press <kbd>H</kbd> or use the corner button to bring it back</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const canvas = $("view");
+const errBox = $("err");
+function fail(msg) { errBox.textContent = msg; errBox.hidden = false; throw new Error(msg); }
+
+const gl = canvas.getContext("webgl2", { antialias: false, depth: false, stencil: false, alpha: false, preserveDrawingBuffer: false, powerPreference: "high-performance" });
+if (!gl) fail("WebGL 2 is not available in this browser.");
+const floatFB = !!gl.getExtension("EXT_color_buffer_float");
+const parallelExt = gl.getExtension("KHR_parallel_shader_compile");
+// The page can only hint at the discrete GPU; the OS / browser picks the adapter, so show which one we got
+const gpuName = (() => {
+  const ext = gl.getExtension("WEBGL_debug_renderer_info");
+  const r = String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
+  return (/ANGLE \([^,]+,\s*(.+?)(?:\s*\(0x[0-9A-Fa-f]+\))?\s*(?:Direct3D|OpenGL|Vulkan|,)/.exec(r) || [, r])[1].trim();
+})();
+
+// ---------------------------------------------------------------- state
+const TAN_HALF = Math.tan((45 * Math.PI / 180) / 2);
+const S = {
+  view: 0, camMode: 0, flySpeed: 1, prec: 2,
+  slots: [{ f: "z^2 + c", n: 1 }], params: {}, alg: 0, julia: 0,
+  c: [-0.125, -0.256, 0.847, 0.0895], z0: [0, 0, 0, 0],
+  hidden: 3, w: 0, rot: [0, 0, 0], rotTarget: 0,
+  cut: true, cutAz: 90, cutEl: 90, cutD: 0, cutOutside: true, cutAlpha: 0.85, iter2D: 250, dens2D: 0.035,
+  noclip: 0, deriv: 2, deMode: 0, iter: 14, iterAuto: 1, iterPerDec: 8, bail: 16, steps: 300, detail: 1, fudge: 0.9, scale: 1, previewMax: 0.5, samples: 16, budget: 40,
+  shadows: 1, shadowSteps: 48, ao: 1, bound: 2.1,
+  colorMode: 0, palette: 0, hue: 0.02, colorScale: 1, lightAz: -35, lightEl: 40,
+  trapMode: 0, trapP: [0, 0, 0, 0], glow: 0, glowHue: 0.5, fog: 0, aperture: 0, focus: 3,
+  lightMode: 0, lampRange: 4, lampDist: 2, lightInt: 1.05, lightTemp: 5600, fillInt: 0, fillHue: 0.6, amb: 0.22, spec: 0.3, shine: 48, shadowK: 10,
+  bgTop: "#1c1e25", bgBot: "#0b0c0f", exposure: 1, vignette: 0,
+};
+const cam = { target: [-0.55, 0, 0], yaw: 0.55, pitch: 0.42, dist: 3.9 };
+let camHome = { target: [...cam.target], dist: cam.dist };
+// 2D view of the cut plane: centre in fixed point (BigInt / 2^P) so it survives arbitrarily deep zoom
+const V2 = { u: 0n, v: 0n, P: 64, scale: 2.1, ref: null };
+
+// Scenes: a formula preset plus everything else (camera, slice, light, colour). Missing keys fall back to the defaults.
+// cam = [target x, y, z, yaw, pitch, distance]
+const SCENES = [
+  { name: "Mandelbox: cathedral", preset: 12, note: "Inside the scale-2 Mandelbox: arches and a dome near a corner of the cube.",
+    s: { bound: 7, iter: 20, cut: false, samples: 32, fog: 0.25, glow: 0.6, glowHue: 0.45, trapMode: 3, amb: 0.35, fillInt: 0.5, vignette: 0.35, shadowK: 12, lightInt: 1.7, exposure: 1.35, lightTemp: 4200, colorScale: 1.4, hue: 0.05 },
+    cam: [2, 1.6, 2.4, 0.7399749, 0.4224488, 6.829348] },
+  { name: "Mandelbulb: golden flower", preset: 11, note: "Mandelbulb n = 8 seen from the pole: eightfold symmetry.",
+    s: { cut: false, samples: 32, ao: 2, amb: 0.18, fillInt: 0.25, fillHue: 0.58, vignette: 0.55, lightInt: 2, exposure: 1.1, lightTemp: 4800, colorScale: 1.6, hue: 0, lightAz: -40, lightEl: 45, spec: 0.5, shine: 60, bgTop: "#141820", bgBot: "#050608" },
+    cam: [0, 0, 0, 0.1414224, 0.1003415, 2.994812] },
+  { name: "Julia: ice cut", preset: 1, note: "Quaternion Julia set cut by a plane ⊥ z: the cut shows its 2D section.",
+    s: { iter: 16, samples: 32, cutAlpha: 0.4, dens2D: 0.02, glow: 0.3, glowHue: 0.35, amb: 0.3, fillInt: 0.5, fillHue: 0.05, vignette: 0.5, lightInt: 1.4, exposure: 1.15, lightTemp: 6500, palette: 2, colorScale: 1.3, hue: 0.1, bgTop: "#1a2233", bgBot: "#05070b" },
+    cam: [0.05, -0.05, 0, 0.6659692, 0.4530065, 2.970269] },
+  { name: "Hybrid: amber folds", preset: 15, note: "Quaternion z² + c alternating with Mandelbox −1.5.",
+    s: { iter: 20, cut: false, samples: 32, fog: 0.15, glow: 0.25, amb: 0.35, fillInt: 0.45, vignette: 0.45, shadowK: 12, lightInt: 1.5, exposure: 1.25, lightTemp: 4500, lightAz: -50, lightEl: 35 },
+    cam: [0.2, 0, 0.3, 0.7328151, 0.4797601, 4.549725] },
+  { name: "Hybrid: ancient temple", preset: 14, note: "Mandelbox −1.5 twice, then a degree-2 Mandelbulb: carvings like on ruins.",
+    s: { iter: 20, cut: false, samples: 32, ao: 2, fog: 0.15, glow: 0.3, glowHue: 0.15, amb: 0.18, fillInt: 0.45, fillHue: 0.58, vignette: 0.55, lightInt: 1.9, exposure: 1.3, lightTemp: 4300, palette: 4, colorScale: 1.4, hue: 0, lightAz: -60, lightEl: 30, spec: 0.35, bgTop: "#1d2430", bgBot: "#07090c" },
+    cam: [0.1, -0.1, 0, 0.7066142, 0.4188622, 5.900847] },
+  { name: "Mandelbox −1.5: carved cube", preset: 13, note: "The whole scale −1.5 Mandelbox: a cut-off corner reveals the inner sphere.",
+    s: { iter: 20, cut: false, samples: 32, ao: 2, fog: 0.08, glow: 0.2, fillInt: 0.4, vignette: 0.5, lightInt: 1.7, exposure: 1.2, lightTemp: 5200, colorScale: 1.5, hue: 0, lightAz: -45, spec: 0.5, shine: 90, bgTop: "#18202c", bgBot: "#06080b" },
+    cam: [0, -0.1, 0, 0.7055682, 0.4583524, 7.91012] },
+  { name: "Mandelbox −1.5: deep cave", preset: 13, note: "Camera ~0.003 from the surface: the chambers of the Mandelbox repeat at every scale. Fly with WASD.",
+    s: { iter: 20, cut: false, samples: 32, fog: 0.15, glow: 0.5, amb: 0.25, fillInt: 0.5, fillHue: 0.58, vignette: 0.5, shadowK: 6, lightInt: 1.8, exposure: 1.3, lightTemp: 4600, colorScale: 1.6, hue: 0, lightAz: -12, lightEl: 12, spec: 0.4, bgTop: "#141a24", bgBot: "#040507" },
+    cam: [1.939982, 1.393342, 1.990175, 0.03288021, 0.8637572, 0.01975012] },
+  { name: "Mandelbrot: cut through the solid of revolution", preset: 0, note: "Quaternion Mandelbrot set cut along the 1–i plane: the classic 2D set on the cut, the rings of the solid of revolution behind it.",
+    s: { samples: 32, ao: 2, cutAlpha: 0.45, dens2D: 0.025, amb: 0.2, fillInt: 0.35, fillHue: 0.08, vignette: 0.5, lightInt: 1.6, exposure: 1.15, colorScale: 1.3, hue: 0, lightAz: -30, lightEl: 55, spec: 0.4, bgTop: "#10141c", bgBot: "#040507" },
+    cam: [-0.55, -0.2, -0.15, 0.9017533, 0.7394662, 3.709784] },
+  { name: "Tetrabrot: crystal", preset: 9, note: "Bicomplex Mandelbrot set: in idempotent coordinates it is the product of two 2D sets.",
+    s: { cut: false, samples: 32, ao: 2, glow: 0.15, trapMode: 3, amb: 0.2, fillInt: 0.55, fillHue: 0.05, vignette: 0.5, lightInt: 1.7, exposure: 0.95, lightTemp: 7000, palette: 2, colorScale: 1.8, hue: 0.35, lightAz: -40, lightEl: 45, spec: 0.7, shine: 120, bgTop: "#121a26", bgBot: "#040608" },
+    cam: [-0.45, 0, 0, 0.734936, 0.4516334, 3.895189] },
+  { name: "2D zoom: snowflakes ×2·10¹²", preset: 0, note: "Slice of the quaternion Mandelbrot set near −0.10110 + 0.95629i at depth 10⁻¹² (perturbation theory). Scroll to go deeper.",
+    s: { view: 1, iter2D: 3000, samples: 24, dens2D: 0.04, palette: 2, hue: 0.3, vignette: 0.4,
+      v2: { u: "-0.10109636384562", v: "0.95628651080914", scale: 1e-12 } },
+    cam: [0, 0, 0, 0.5, 0.4, 3.9] },
+];
+
+const PRESETS = [
+  { name: "Quaternion Mandelbrot  z² + c", f: "z^2 + c", alg: 0, julia: 0, z0: [0, 0, 0, 0], bound: 2.1, cam: [-0.55, 0, 0, 3.9] },
+  { name: "Quaternion Julia  c = −0.125 − 0.256i + 0.847j + 0.0895k", f: "z^2 + c", alg: 0, julia: 1, c: [-0.125, -0.256, 0.847, 0.0895], bound: 1.7, cam: [0, 0, 0, 3.3] },
+  { name: "Quaternion Julia  c = −0.137 − 0.63i − 0.475j − 0.046k", f: "z^2 + c", alg: 0, julia: 1, c: [-0.137, -0.63, -0.475, -0.046], bound: 1.7, cam: [0, 0, 0, 3.3] },
+  { name: "Quaternion Julia  c = −0.218 − 0.113i − 0.181j − 0.496k", f: "z^2 + c", alg: 0, julia: 1, c: [-0.218, -0.113, -0.181, -0.496], bound: 1.7, cam: [0, 0, 0, 3.3] },
+  { name: "Douady rabbit revolved around the axis  c = −0.123 + 0.745i", f: "z^2 + c", alg: 0, julia: 1, c: [-0.123, 0.745, 0, 0], bound: 1.7, cam: [0, 0, 0, 3.3] },
+  { name: "Cubic Mandelbrot  z³ + c", f: "z^3 + c", alg: 0, julia: 0, z0: [0, 0, 0, 0], bound: 1.6, cam: [0, 0, 0, 3.3] },
+  { name: "Degree-8 Mandelbrot  z⁸ + c", f: "z^8 + c", alg: 0, julia: 0, z0: [0, 0, 0, 0], bound: 1.4, cam: [0, 0, 0, 2.9] },
+  { name: "Burning Ship  abs(z)² + c", f: "abs(z)^2 + c", alg: 0, julia: 0, z0: [0, 0, 0, 0], bound: 2.2, fudge: 0.6, cam: [-0.5, 0, 0, 4.0] },
+  { name: "Lambda set  c z (1 − z),  z₀ = ½", f: "c z (1 - z)", alg: 0, julia: 0, z0: [0.5, 0, 0, 0], bound: 4.2, bail: 64, cam: [1, 0, 0, 7.5] },
+  { name: "Tetrabrot: bicomplex Mandelbrot", f: "z^2 + c", alg: 1, julia: 0, z0: [0, 0, 0, 0], bound: 2.1, cam: [-0.5, 0, 0, 4.4] },
+  { name: "Bicomplex Julia  c = −1 (basilica²)", f: "z^2 + c", alg: 1, julia: 1, c: [-1, 0, 0, 0], bound: 1.9, cam: [0, 0, 0, 3.8] },
+  { name: "Mandelbulb, n = 8", f: "bulb(z, power) + c", params: { power: 8 }, alg: 0, julia: 0, z0: [0, 0, 0, 0], bound: 1.3, cam: [0, 0, 0, 3.6] },
+  { name: "Mandelbox, scale 2", f: "scale spherefold(boxfold(z, fold), rmin, rmax) + c", params: { scale: 2, fold: 1, rmin: 0.5, rmax: 1 }, alg: 0, julia: 0, z0: [0, 0, 0, 0], bound: 10.6, bail: 100, iter: 20, cam: [0, 0, 0, 30] },
+  { name: "Mandelbox, scale −1.5", f: "scale spherefold(boxfold(z, fold), rmin, rmax) + c", params: { scale: -1.5, fold: 1, rmin: 0.5, rmax: 1 }, alg: 0, julia: 0, z0: [0, 0, 0, 0], bound: 3.7, bail: 100, iter: 20, cam: [0, 0, 0, 8] },
+  { name: "Hybrid: Mandelbox −1.5 ×2 → Mandelbulb² ×1", slots: [{ f: "scale spherefold(boxfold(z, fold), rmin, rmax) + c", n: 2 }, { f: "bulb(z, power) + c", n: 1 }], params: { scale: -1.5, fold: 1, rmin: 0.5, rmax: 1, power: 2 }, alg: 0, julia: 0, z0: [0, 0, 0, 0], bound: 3.7, bail: 100, iter: 20, cam: [0, 0, 0, 8] },
+  { name: "Hybrid: quaternion z² + c → Mandelbox −1.5", slots: [{ f: "z^2 + c", n: 1 }, { f: "scale spherefold(boxfold(z, fold), rmin, rmax) + c", n: 1 }], params: { scale: -1.5, fold: 1, rmin: 0.5, rmax: 1 }, alg: 0, julia: 0, z0: [0, 0, 0, 0], bound: 3.7, bail: 100, iter: 20, cam: [0, 0, 0, 8] },
+];
+
+// ---------------------------------------------------------------- formula parser → AST over 4-component constants
+const FN = { exp: "exp", log: "log", ln: "log", sqrt: "sqrt", sin: "sin", cos: "cos", tan: "tan", sinh: "sinh", cosh: "cosh", tanh: "tanh",
+  atan: "atan", arctan: "atan", abs: "abs", conj: "conj", norm: "norm", re: "re", boxfold: "boxfold", spherefold: "spherefold", bulb: "bulb" };
+// space transforms with numeric parameters and their defaults
+const FOLDS = { boxfold: [1], spherefold: [0.5, 1], bulb: [8] };
+const CONSTS = { i: [0, 1, 0, 0], j: [0, 0, 1, 0], k: [0, 0, 0, 1], pi: [Math.PI, 0, 0, 0], "π": [Math.PI, 0, 0, 0], e: [Math.E, 0, 0, 0] };
+const fnName = (n) => FN[n] || FN[n.toLowerCase()];
+
+function tokenize(src) {
+  const s = src.replace(/[−–]/g, "-").replace(/[·×∙]/g, "*").replace(/÷/g, "/").replace(/²/g, "^2").replace(/³/g, "^3").replace(/\|([^|]+)\|/g, "abs($1)");
+  const out = [];
+  let i = 0;
+  while (i < s.length) {
+    const ch = s[i];
+    if (/\s/.test(ch)) { i++; continue; }
+    const num = /^(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?/.exec(s.slice(i));
+    if (num) { out.push({ t: "num", v: parseFloat(num[0]), at: i }); i += num[0].length; continue; }
+    const id = /^[A-Za-z_π][A-Za-z0-9_]*/.exec(s.slice(i));
+    if (id) {
+      // a run of one-letter names is a product: "zc" = z·c, "2ij" = 2·i·j
+      const v = id[0];
+      if (v.length > 1 && /^[zcijke]+$/.test(v) && !fnName(v)) [...v].forEach((c, k) => out.push({ t: "id", v: c, at: i + k }));
+      else out.push({ t: "id", v, at: i });
+      i += v.length; continue;
+    }
+    if ("+-*/^(),".includes(ch)) { out.push({ t: ch, at: i }); i++; continue; }
+    throw new Error(`Unexpected character "${ch}"`);
+  }
+  out.push({ t: "end", at: s.length });
+  return out;
+}
+
+const K = (q) => ({ t: "k", q });
+const isReal = (q) => q[1] === 0 && q[2] === 0 && q[3] === 0;
+// Constant folding only where the result does not depend on the algebra (sums, real scalings, real powers)
+function mkOp(op, a, b) {
+  if (a.t === "k" && b.t === "k") {
+    let r = null;
+    if (op === "+") r = a.q.map((v, n) => v + b.q[n]);
+    else if (op === "-") r = a.q.map((v, n) => v - b.q[n]);
+    else if (op === "*" && isReal(a.q)) r = b.q.map((v) => v * a.q[0]);
+    else if (op === "*" && isReal(b.q)) r = a.q.map((v) => v * b.q[0]);
+    else if (op === "/" && isReal(b.q) && b.q[0] !== 0) r = a.q.map((v) => v / b.q[0]);
+    else if (op === "^" && isReal(a.q) && isReal(b.q) && (a.q[0] > 0 || Number.isInteger(b.q[0]))) r = [Math.pow(a.q[0], b.q[0]), 0, 0, 0];
+    if (r && r.every(isFinite)) return K(r);
+  }
+  return { t: "op", op, a, b };
+}
+
+function parseFormula(src) {
+  const tk = tokenize(src);
+  let p = 0;
+  const peek = () => tk[p], next = () => tk[p++];
+  const expect = (t, msg) => { if (peek().t !== t) throw new Error(msg); return next(); };
+  const startsPrimary = (t) => t.t === "num" || t.t === "id" || t.t === "(";
+  function expr() {
+    let a = term();
+    while (peek().t === "+" || peek().t === "-") { const op = next().t; a = mkOp(op, a, term()); }
+    return a;
+  }
+  function term() {
+    let a = unary();
+    for (;;) {
+      if (peek().t === "*" || peek().t === "/") { const op = next().t; a = mkOp(op, a, unary()); }
+      else if (startsPrimary(peek())) a = mkOp("*", a, pow());
+      else return a;
+    }
+  }
+  function unary() {
+    if (peek().t === "-") { next(); const a = unary(); return a.t === "k" ? K(a.q.map((v) => -v)) : { t: "neg", a }; }
+    if (peek().t === "+") { next(); return unary(); }
+    return pow();
+  }
+  function pow() {
+    const a = primary();
+    if (peek().t === "^") { next(); return mkOp("^", a, unary()); }
+    return a;
+  }
+  function primary() {
+    const t = next();
+    if (t.t === "num") return K([t.v, 0, 0, 0]);
+    if (t.t === "(") { const a = expr(); expect(")", "Missing closing parenthesis \")\""); return a; }
+    if (t.t === "id") {
+      const f = fnName(t.v);
+      if (f && peek().t === "(") {
+        next();
+        const args = [expr()];
+        while (peek().t === ",") { next(); args.push(expr()); }
+        expect(")", `Missing ")" after the arguments of ${t.v}`);
+        const spec = FOLDS[f];
+        if (!spec) {
+          if (args.length !== 1) throw new Error(`${t.v}(…) takes one argument`);
+          return { t: "fn", f, a: args[0] };
+        }
+        if (args.length - 1 > spec.length) throw new Error(`${t.v}: at most ${spec.length + 1} arguments`);
+        // a number, or the name of a parameter
+        const prm = spec.map((def, k) => {
+          const a = args[k + 1];
+          if (!a) return def;
+          if (a.t === "p") return a.name;
+          if (a.t !== "k" || !isReal(a.q)) throw new Error(`${t.v}: argument ${k + 2} must be a number or a parameter name`);
+          return a.q[0];
+        });
+        return { t: "fn", f, a: args[0], p: prm };
+      }
+      if (t.v.toLowerCase() === "pow" && peek().t === "(") {
+        next(); const a = expr(); expect(",", "pow(a, b) needs two arguments"); const b = expr(); expect(")", "Missing \")\" after pow");
+        return mkOp("^", a, b);
+      }
+      if (f) throw new Error(`${t.v} needs parentheses: ${t.v}(z)`);
+      if (t.v === "z" || t.v === "c") return { t: "v", n: t.v };
+      const k = CONSTS[t.v] || CONSTS[t.v.toLowerCase() === "pi" ? "pi" : ""];
+      if (k) return K([...k]);
+      // any other name is a real parameter with its own slider
+      return { t: "p", name: t.v };
+    }
+    if (t.t === "end") throw new Error("The formula ends too early");
+    throw new Error(`Unexpected "${t.t}"`);
+  }
+  if (peek().t === "end") throw new Error("Empty formula");
+  const ast = expr();
+  if (peek().t !== "end") throw new Error(`Unexpected text at the end: "${src.slice(peek().at)}"`);
+  return ast;
+}
+
+// Polynomial degree in z, used for smooth escape-time coloring; NaN for transcendental formulas
+function zDegree(n) {
+  switch (n.t) {
+    case "k": return 0;
+    case "v": return n.n === "z" ? 1 : 0;
+    case "neg": return zDegree(n.a);
+    case "p": return 0;
+    case "fn": return n.f === "bulb" ? argNum(n.p[0]) * zDegree(n.a) : ["abs", "conj", "norm", "re", "boxfold", "spherefold"].includes(n.f) ? zDegree(n.a) : NaN;
+  }
+  const a = zDegree(n.a), b = zDegree(n.b);
+  if (n.op === "+" || n.op === "-") return Math.max(a, b);
+  if (n.op === "*") return a + b;
+  if (n.op === "/") return a - b;
+  return n.b.t === "k" && isReal(n.b.q) ? a * n.b.q[0] : NaN;
+}
+
+// ---------------------------------------------------------------- AST → GLSL
+// The expression is emitted once with type-generic helper names; GLSL overloads resolve them for
+// VAL (plain value: vec4, or Q = double-float vec4), S (value + scalar derivative bound) and J (value + 4×3 Jacobian over the slice).
+const glf = (v) => { if (!isFinite(v)) throw new Error("Constant outside the float range"); let s = String(v); if (!/[.eE]/.test(s)) s += ".0"; return s; };
+const realK = (x) => x.t === "k" && isReal(x.q);
+// formula parameters: real numbers fed to the shader as uParam[i], so moving their sliders needs no recompile
+const MAX_PARAMS = 16;
+const pGL = (name) => `uParam[${RT.paramIndex[name]}]`;
+const pVal = (name) => (name in S.params ? S.params[name] : 1);
+const argNum = (v) => (typeof v === "number" ? v : pVal(v));
+const argGL = (v) => (typeof v === "number" ? glf(v) : pGL(v));
+// a real scalar factor as GLSL, or null
+const scalGL = (x) => (realK(x) ? glf(x.q[0]) : x.t === "p" ? pGL(x.name) : null);
+function collectParams(n, out) {
+  if (!n) return out;
+  if (n.t === "p" && !out.includes(n.name)) out.push(n.name);
+  if (n.t === "fn") for (const v of n.p || []) if (typeof v === "string" && !out.includes(v)) out.push(v);
+  collectParams(n.a, out); collectParams(n.b, out);
+  return out;
+}
+function gen(n, used) {
+  switch (n.t) {
+    case "k": return `LIFT(vec4(${n.q.map(glf).join(", ")}))`;
+    case "v": return n.n;
+    case "neg": return `h_neg(${gen(n.a, used)})`;
+    case "p": return `LIFT(vec4(${pGL(n.name)}, 0.0, 0.0, 0.0))`;
+    case "fn": used.add(n.f); return `f_${n.f}(${gen(n.a, used)}${(n.p || []).map((v) => ", " + argGL(v)).join("")})`;
+  }
+  const { op, a, b } = n;
+  if (op === "+") return `h_add(${gen(a, used)}, ${gen(b, used)})`;
+  if (op === "-") return `h_sub(${gen(a, used)}, ${gen(b, used)})`;
+  if (op === "*") {
+    if (scalGL(a)) return `h_scl(${gen(b, used)}, ${scalGL(a)})`;
+    if (scalGL(b)) return `h_scl(${gen(a, used)}, ${scalGL(b)})`;
+    return `h_mul(${gen(a, used)}, ${gen(b, used)})`;
+  }
+  if (op === "/") {
+    if (realK(b)) return `h_scl(${gen(a, used)}, ${glf(1 / b.q[0])})`;
+    if (b.t === "p") return `h_scl(${gen(a, used)}, 1.0 / ${pGL(b.name)})`;
+    return `h_mul(${gen(a, used)}, h_inv(${gen(b, used)}))`;
+  }
+  if (b.t === "p") { used.add("pwr"); return `f_pwr(${gen(a, used)}, ${pGL(b.name)})`; }
+  if (realK(b)) {
+    const pw = b.q[0];
+    if (Number.isInteger(pw) && Math.abs(pw) <= 4096) {
+      const m = Math.abs(pw), A = gen(a, used);
+      if (m > 2) (used.pows ||= new Set()).add(m);
+      const pos = m === 0 ? "LIFT(vec4(1.0, 0.0, 0.0, 0.0))" : m === 1 ? A : m === 2 ? `h_sq(${A})` : `h_pw${m}(${A})`;
+      return pw < 0 ? `h_inv(${pos})` : pos;
+    }
+    used.add("pwr");
+    return `f_pwr(${gen(a, used)}, ${glf(pw)})`;
+  }
+  used.add("exp");
+  if (realK(a) && a.q[0] === Math.E) return `f_exp(${gen(b, used)})`;
+  used.add("log");
+  return `f_exp(h_mul(f_log(${gen(a, used)}), ${gen(b, used)}))`;
+}
+
+// Perturbation form of the formula for deep 2D zoom: every node carries (X = reference value, x = delta),
+// so F(Z + dz, C + dc) − F(Z, C) is computed without ever subtracting two nearly equal numbers.
+function genPert(ast) {
+  const st = [];
+  let id = 0;
+  const tmp = (X, x) => { const k = id++; st.push(`vec4 X${k} = ${X}; vec4 x${k} = ${x};`); return { X: `X${k}`, x: `x${k}` }; };
+  const mul = (A, B) => tmp(`amul(${A.X}, ${B.X})`, `amul(${A.X}, ${B.x}) + amul(${A.x}, ${B.X} + ${B.x})`);
+  const inv = (A) => tmp(`ainv(${A.X})`, `-amul(ainv(${A.X}), amul(${A.x}, ainv(${A.X} + ${A.x})))`);
+  function g(n) {
+    switch (n.t) {
+      case "k": return { X: `vec4(${n.q.map(glf).join(", ")})`, x: "vec4(0.0)" };
+      case "p": return { X: `vec4(${pGL(n.name)}, 0.0, 0.0, 0.0)`, x: "vec4(0.0)" };
+      case "v": return n.n === "z" ? { X: "Z", x: "dz" } : { X: "C", x: "dc" };
+      case "neg": { const a = g(n.a); return tmp(`-${a.X}`, `-${a.x}`); }
+      case "fn": {
+        const a = g(n.a);
+        if (n.f === "conj") return tmp(`cj(${a.X})`, `cj(${a.x})`);
+        if (n.f === "re") return tmp(`vec4(${a.X}.x, 0.0, 0.0, 0.0)`, `vec4(${a.x}.x, 0.0, 0.0, 0.0)`);
+        if (n.f === "abs") return tmp(`abs(${a.X})`, `diffabs(${a.X}, ${a.x})`);
+        if (n.f === "norm") return tmp(`vec4(length(${a.X}), 0.0, 0.0, 0.0)`, `vec4(dnorm(${a.X}, ${a.x}), 0.0, 0.0, 0.0)`);
+        throw new Error(`${n.f}() is not a polynomial`);
+      }
+    }
+    const { op, a, b } = n;
+    if (op === "+" || op === "-") { const A = g(a), B = g(b); return tmp(`${A.X} ${op} ${B.X}`, `${A.x} ${op} ${B.x}`); }
+    if (op === "*" && realK(a)) { const B = g(b); return tmp(`${B.X} * ${glf(a.q[0])}`, `${B.x} * ${glf(a.q[0])}`); }
+    if (op === "*" && realK(b)) { const A = g(a); return tmp(`${A.X} * ${glf(b.q[0])}`, `${A.x} * ${glf(b.q[0])}`); }
+    if (op === "*") return mul(g(a), g(b));
+    if (op === "/" && realK(b)) { const A = g(a), k = glf(1 / b.q[0]); return tmp(`${A.X} * ${k}`, `${A.x} * ${k}`); }
+    if (op === "/") return mul(g(a), inv(g(b)));
+    if (realK(b) && Number.isInteger(b.q[0]) && Math.abs(b.q[0]) <= 4096) {
+      const m = Math.abs(b.q[0]);
+      let r = null, p = g(a);
+      if (m === 0) r = { X: "vec4(1.0, 0.0, 0.0, 0.0)", x: "vec4(0.0)" };
+      for (let k = m; k > 0; k >>= 1) {
+        if (k & 1) r = r ? mul(r, p) : p;
+        if (k > 1) p = mul(p, p);
+      }
+      return b.q[0] < 0 ? inv(r) : r;
+    }
+    throw new Error("non-integer power");
+  }
+  const r = g(ast);
+  return `vec4 pert(vec4 Z, vec4 C, vec4 dz, vec4 dc) {\n  ${st.join("\n  ")}\n  return ${r.x};\n}\n`;
+}
+
+// Functions continued from the complex plane: value F(w) and derivative F'(w)
+const INTR = {
+  exp: ["cexp(w)", "cexp(w)"],
+  log: ["clog(w)", "cinv(w)"],
+  sqrt: ["csqrt(w)", "0.5 * cinv(csqrt(w))"],
+  sin: ["csin(w)", "ccos(w)"],
+  cos: ["ccos(w)", "-csin(w)"],
+  tan: ["cdiv(csin(w), ccos(w))", "cinv(csq(ccos(w)))"],
+  sinh: ["csinh(w)", "ccosh(w)"],
+  cosh: ["ccosh(w)", "csinh(w)"],
+  tanh: ["cdiv(csinh(w), ccosh(w))", "cinv(csq(ccosh(w)))"],
+  atan: ["catan(w)", "cinv(vec2(1.0, 0.0) + csq(w))"],
+  pwr: ["cpowr(w, p)", "p * cpowr(w, p - 1.0)"],
+};
+// mat3x4 built column by column with constant indices: dynamic matrix indexing is slow on ANGLE/D3D
+const J3 = (f) => `mat3x4(${[0, 1, 2].map(f).join(", ")})`;
+function intrinsicGLSL(name, alg, jac, df) {
+  const [F, D] = INTR[name];
+  const decl = name === "pwr" ? ", float p" : "", arg = name === "pwr" ? "p" : "0.0", pass = name === "pwr" ? ", p" : "";
+  const cf = (w) => `cF_${name}(${w}, ${arg})`, cd = (w) => `cD_${name}(${w}, ${arg})`;
+  let s = `vec2 cF_${name}(vec2 w, float p) { return ${F}; }\nvec2 cD_${name}(vec2 w, float p) { return ${D}; }\n`;
+  if (alg === 0) {
+    // quaternion q = s + r·u lives in the complex plane spanned by 1 and u
+    s += `vec4 f_${name}(vec4 a${decl}) { vec2 w; vec3 u; qsplit(a, w, u); return qjoin(${cf("w")}, u); }\n`;
+    s += `S f_${name}(S a${decl}) { vec2 w; vec3 u; qsplit(VHI(a.v), w, u); vec2 W = ${cf("w")}, D = ${cd("w")}; return S(VLIFT(qjoin(W, u)), a.d * qgain(w, W, D)); }\n`;
+    if (jac) s += `J f_${name}(J a${decl}) { vec2 w; vec3 u; qsplit(VHI(a.v), w, u); vec2 W = ${cf("w")}, D = ${cd("w")}; return J(VLIFT(qjoin(W, u)), ${J3((i) => `qdfun(a.d[${i}], w, u, W, D)`)}); }\n`;
+  } else {
+    // bicomplex: the function acts on each idempotent component separately
+    s += `vec4 f_${name}(vec4 a${decl}) { vec4 A = toI(a); return fromI(vec4(${cf("A.xy")}, ${cf("A.zw")})); }\n`;
+    s += `S f_${name}(S a${decl}) { vec4 A = toI(VHI(a.v)); return S(VLIFT(fromI(vec4(${cf("A.xy")}, ${cf("A.zw")}))), a.d * max(length(${cd("A.xy")}), length(${cd("A.zw")}))); }\n`;
+    if (jac) s += `J f_${name}(J a${decl}) { vec4 A = toI(VHI(a.v)); vec4 Dq = fromI(vec4(${cd("A.xy")}, ${cd("A.zw")})); return J(VLIFT(fromI(vec4(${cf("A.xy")}, ${cf("A.zw")}))), ${J3((i) => `amul(Dq, a.d[${i}])`)}); }\n`;
+  }
+  // transcendental functions stay in float even in double-float mode
+  if (df) s += `Q f_${name}(Q a${decl}) { return dlift(f_${name}(a.hi${pass})); }\n`;
+  return s;
+}
+
+// Folds act on the 4 components directly, independent of the algebra
+function foldGLSL(name, jac, df) {
+  const G = {
+    boxfold: {
+      v: `vec4 f_boxfold(vec4 a, float r) { return clamp(a, -r, r) * 2.0 - a; }`,
+      q: `Q f_boxfold(Q a, float r) { vec4 gt = step(r, a.hi), lt = step(a.hi, vec4(-r)), m = 1.0 - 2.0 * (gt + lt); return dadd(Q(a.hi * m, a.lo * m), dlift(2.0 * r * (gt - lt))); }`,
+      s: `S f_boxfold(S a, float r) { return S(f_boxfold(a.v, r), a.d); }`,
+      j: `J f_boxfold(J a, float r) { vec4 s = 1.0 - 2.0 * step(r, abs(VHI(a.v))); return J(f_boxfold(a.v, r), ${J3((i) => `a.d[${i}] * s`)}); }`,
+    },
+    spherefold: {
+      v: `float sfK(float r2, float mn, float mx) { return r2 < mn * mn ? (mx * mx) / (mn * mn) : r2 < mx * mx ? (mx * mx) / r2 : 1.0; }
+vec4 f_spherefold(vec4 a, float mn, float mx) { return a * sfK(dot(a, a), mn, mx); }`,
+      q: `Q f_spherefold(Q a, float mn, float mx) {
+  float r2 = dot(a.hi, a.hi);
+  if (r2 < mn * mn) return dmulf(a, vec4((mx * mx) / (mn * mn)));
+  if (r2 < mx * mx) return dmul(a, dmulf(drcp(dlen2(a)), vec4(mx * mx)));
+  return a;
+}`,
+      s: `S f_spherefold(S a, float mn, float mx) { vec4 v = VHI(a.v); return S(f_spherefold(a.v, mn, mx), a.d * sfK(dot(v, v), mn, mx)); }`,
+      // the inversion z·R²/|z|² has Jacobian k·(I − 2uuᵀ)
+      j: `J f_spherefold(J a, float mn, float mx) {
+  vec4 v = VHI(a.v); float r2 = dot(v, v), k = sfK(r2, mn, mx);
+  VAL o = f_spherefold(a.v, mn, mx);
+  if (r2 < mn * mn || r2 >= mx * mx) return J(o, a.d * k);
+  vec4 u = v * inversesqrt(r2);
+  return J(o, ${J3((i) => `k * (a.d[${i}] - 2.0 * u * dot(u, a.d[${i}]))`)});
+}`,
+    },
+    bulb: {
+      v: `vec4 f_bulb(vec4 a, float n) {
+  float r = length(a.xyz);
+  if (r < 1e-30) return vec4(0.0);
+  float th = acos(clamp(a.z / r, -1.0, 1.0)) * n, ph = atan(a.y, a.x) * n, rn = pow(r, n);
+  return vec4(rn * sin(th) * cos(ph), rn * sin(th) * sin(ph), rn * cos(th), a.w * rn / r);
+}`,
+      q: `Q f_bulb(Q a, float n) { return dlift(f_bulb(a.hi, n)); }`,
+      s: `S f_bulb(S a, float n) { return S(f_bulb(a.v, n), a.d * n * pow(max(length(VHI(a.v)), 1e-30), n - 1.0)); }`,
+      // the triplex power is not conformal: Jacobian columns by central differences
+      j: `vec4 bulbD(vec4 v, vec4 d, float n) { float l = length(d); if (l == 0.0) return vec4(0.0); float s = 1e-3 * max(length(v), 1e-20) / l; return (f_bulb(v + d * s, n) - f_bulb(v - d * s, n)) / (2.0 * s); }
+J f_bulb(J a, float n) { vec4 v = VHI(a.v); return J(f_bulb(a.v, n), ${J3((i) => `bulbD(v, a.d[${i}], n)`)}); }`,
+    },
+  }[name];
+  return [G.v, df && G.q, G.s, jac && G.j].filter(Boolean).join("\n") + "\n";
+}
+
+function powGLSL(m, T) {
+  const st = [];
+  let r = null, p = "a", k = 0;
+  for (let n = m; n > 0; n >>= 1) {
+    if (n & 1) { st.push(r ? `r = h_mul(r, ${p});` : `${T} r = ${p};`); r = "r"; }
+    if (n > 1) { st.push(`${T} p${++k} = h_sq(${p});`); p = `p${k}`; }
+  }
+  return `${T} h_pw${m}(${T} a) { ${st.join(" ")} return r; }\n`;
+}
+
+const GLSL_COMPLEX = `
+vec2 cmul(vec2 a, vec2 b) { return vec2(a.x * b.x - a.y * b.y, a.x * b.y + a.y * b.x); }
+vec2 csq(vec2 a) { return vec2(a.x * a.x - a.y * a.y, 2.0 * a.x * a.y); }
+vec2 cinv(vec2 a) { return vec2(a.x, -a.y) / dot(a, a); }
+vec2 cdiv(vec2 a, vec2 b) { return cmul(a, cinv(b)); }
+vec2 cexp(vec2 a) { return exp(a.x) * vec2(cos(a.y), sin(a.y)); }
+vec2 clog(vec2 a) { return vec2(log(length(a)), atan(a.y, a.x)); }
+vec2 csqrt(vec2 a) { float r = length(a); return vec2(sqrt(max(0.5 * (r + a.x), 0.0)), (a.y < 0.0 ? -1.0 : 1.0) * sqrt(max(0.5 * (r - a.x), 0.0))); }
+vec2 csin(vec2 a) { return vec2(sin(a.x) * cosh(a.y), cos(a.x) * sinh(a.y)); }
+vec2 ccos(vec2 a) { return vec2(cos(a.x) * cosh(a.y), -sin(a.x) * sinh(a.y)); }
+vec2 csinh(vec2 a) { return vec2(sinh(a.x) * cos(a.y), cosh(a.x) * sin(a.y)); }
+vec2 ccosh(vec2 a) { return vec2(cosh(a.x) * cos(a.y), sinh(a.x) * sin(a.y)); }
+vec2 catan(vec2 a) { vec2 iw = vec2(-a.y, a.x); vec2 l = clog(vec2(1.0, 0.0) - iw) - clog(vec2(1.0, 0.0) + iw); return 0.5 * vec2(-l.y, l.x); }
+vec2 cpowr(vec2 a, float p) { float r = length(a); if (r == 0.0) return vec2(0.0); float th = atan(a.y, a.x) * p; return pow(r, p) * vec2(cos(th), sin(th)); }
+`;
+
+const GLSL_QUAT = `
+vec4 amul(vec4 a, vec4 b) { return vec4(a.x * b.x - dot(a.yzw, b.yzw), a.x * b.yzw + b.x * a.yzw + cross(a.yzw, b.yzw)); }
+vec4 ainv(vec4 a) { return vec4(a.x, -a.yzw) / dot(a, a); }
+float opn(vec4 a) { return length(a); }   // operator norm of left/right multiplication by a
+void qsplit(vec4 q, out vec2 w, out vec3 u) { float r = length(q.yzw); u = r > 1e-30 ? q.yzw / r : vec3(1.0, 0.0, 0.0); w = vec2(q.x, r); }
+vec4 qjoin(vec2 W, vec3 u) { return vec4(W.x, W.y * u); }
+float qgain(vec2 w, vec2 W, vec2 D) { return max(length(D), w.y > 1e-6 ? abs(W.y) / w.y : length(D)); }
+// Directional derivative of an intrinsic function: the part of h in span(1, u) gets F'(w), the part orthogonal to it only rotates u
+vec4 qdfun(vec4 h, vec2 w, vec3 u, vec2 W, vec2 D) {
+  float h1 = dot(h.yzw, u);
+  vec2 dw = cmul(D, vec2(h.x, h1));
+  float k = w.y > 1e-6 ? W.y / w.y : D.x;
+  return vec4(dw.x, dw.y * u + k * (h.yzw - h1 * u));
+}
+`;
+
+const GLSL_BICOMPLEX = `
+// z = z1 + z2 j with ij = ji = k; idempotent coordinates w1 = z1 - i z2, w2 = z1 + i z2 multiply independently
+vec4 toI(vec4 z) { return vec4(z.x + z.w, z.y - z.z, z.x - z.w, z.y + z.z); }
+vec4 fromI(vec4 w) { return 0.5 * vec4(w.x + w.z, w.y + w.w, w.w - w.y, w.x - w.z); }
+vec4 amul(vec4 a, vec4 b) { vec4 A = toI(a), B = toI(b); return fromI(vec4(cmul(A.xy, B.xy), cmul(A.zw, B.zw))); }
+vec4 ainv(vec4 a) { vec4 A = toI(a); return fromI(vec4(cinv(A.xy), cinv(A.zw))); }
+float opn(vec4 a) { vec4 A = toI(a); return max(length(A.xy), length(A.zw)); }
+`;
+
+// Double-float arithmetic (≈ 48-bit mantissa from pairs of floats). uOne = 1.0 is a uniform so the
+// compiler cannot prove the error-free transformations are zero and fold them away.
+const GLSL_DF = `
+uniform float uOne;
+struct Q { vec4 hi; vec4 lo; };
+Q dlift(vec4 a) { return Q(a, vec4(0.0)); }
+vec4 dfTwoSum(vec4 a, vec4 b, out vec4 e) { vec4 s = (a + b) * uOne; vec4 v = (s - a) * uOne; e = (a - (s - v)) + (b - v); return s; }
+Q dfNorm(vec4 s, vec4 e) { vec4 h = (s + e) * uOne; return Q(h, e - (h - s)); }
+Q dadd(Q a, Q b) { vec4 e; vec4 s = dfTwoSum(a.hi, b.hi, e); return dfNorm(s, e + a.lo + b.lo); }
+Q dneg(Q a) { return Q(-a.hi, -a.lo); }
+Q dsub(Q a, Q b) { return dadd(a, dneg(b)); }
+vec4 dfSplit(vec4 a) { vec4 c = (4097.0 * a) * uOne; return (c - (c - a)) * uOne; }
+vec4 dfTwoProd(vec4 a, vec4 b, out vec4 e) { vec4 p = (a * b) * uOne; vec4 ah = dfSplit(a), bh = dfSplit(b), al = a - ah, bl = b - bh; e = ((ah * bh - p) + ah * bl + al * bh) + al * bl; return p; }
+Q dmul(Q a, Q b) { vec4 e; vec4 p = dfTwoProd(a.hi, b.hi, e); return dfNorm(p, e + (a.hi * b.lo + a.lo * b.hi)); }
+Q dmulf(Q a, vec4 k) { vec4 e; vec4 p = dfTwoProd(a.hi, k, e); return dfNorm(p, e + a.lo * k); }
+Q drcp(Q a) { Q r = dlift(1.0 / a.hi); return dadd(r, dmul(r, dsub(dlift(vec4(1.0)), dmul(a, r)))); }
+Q dlen2(Q a) { Q s = dmul(a, a); s = dadd(s, Q(s.hi.zwxy, s.lo.zwxy)); return dadd(s, Q(s.hi.yxwz, s.lo.yxwz)); }   // |a|² in every lane
+`;
+const GLSL_DF_QUAT = `
+Q amulD(Q a, Q b) {
+  vec4 s1 = vec4(-1.0, 1.0, -1.0, 1.0), s2 = vec4(-1.0, 1.0, 1.0, -1.0), s3 = vec4(-1.0, -1.0, 1.0, 1.0);
+  Q r = dmul(Q(a.hi.xxxx, a.lo.xxxx), b);
+  r = dadd(r, dmul(Q(a.hi.yyyy, a.lo.yyyy), Q(b.hi.yxwz * s1, b.lo.yxwz * s1)));
+  r = dadd(r, dmul(Q(a.hi.zzzz, a.lo.zzzz), Q(b.hi.zwxy * s2, b.lo.zwxy * s2)));
+  return dadd(r, dmul(Q(a.hi.wwww, a.lo.wwww), Q(b.hi.wzyx * s3, b.lo.wzyx * s3)));
+}
+Q ainvD(Q a) {
+  Q s = dmul(a, a);
+  s = dadd(s, Q(s.hi.zwxy, s.lo.zwxy));
+  s = dadd(s, Q(s.hi.yxwz, s.lo.yxwz));   // every lane now holds |a|^2
+  vec4 m = vec4(1.0, -1.0, -1.0, -1.0);
+  return dmul(Q(a.hi * m, a.lo * m), drcp(s));
+}
+`;
+const GLSL_DF_BI = `
+Q toID(Q z) { vec4 m = vec4(1.0, -1.0, -1.0, 1.0); return dadd(Q(z.hi.xyxy, z.lo.xyxy), Q(z.hi.wzwz * m, z.lo.wzwz * m)); }
+Q fromID(Q w) { vec4 m = vec4(1.0, 1.0, -1.0, -1.0); Q r = dadd(Q(w.hi.xywx, w.lo.xywx), Q(w.hi.zwyz * m, w.lo.zwyz * m)); return Q(r.hi * 0.5, r.lo * 0.5); }
+Q cmulD(Q a, Q b) { vec4 s = vec4(-1.0, 1.0, -1.0, 1.0); return dadd(dmul(Q(a.hi.xxzz, a.lo.xxzz), b), dmul(Q(a.hi.yyww, a.lo.yyww), Q(b.hi.yxwz * s, b.lo.yxwz * s))); }
+Q amulD(Q a, Q b) { return fromID(cmulD(toID(a), toID(b))); }
+Q ainvD(Q a) {
+  Q A = toID(a), s = dmul(A, A);
+  Q n = dadd(Q(s.hi.xxzz, s.lo.xxzz), Q(s.hi.yyww, s.lo.yyww));
+  vec4 m = vec4(1.0, -1.0, 1.0, -1.0);
+  return fromID(dmul(Q(A.hi * m, A.lo * m), drcp(n)));
+}
+`;
+
+const GLSL_VAL = `
+#ifdef DF64
+#define VAL Q
+#define POS Q
+#define VHI(x) ((x).hi)
+#define VLIFT(x) dlift(x)
+#define PHI(p) ((p).hi.xyz)
+Q liftV(vec4 a) { return dlift(a); }
+Q h_add(Q a, Q b) { return dadd(a, b); }
+Q h_sub(Q a, Q b) { return dsub(a, b); }
+Q h_neg(Q a) { return dneg(a); }
+Q h_scl(Q a, float k) { return dmulf(a, vec4(k)); }
+Q h_mul(Q a, Q b) { return amulD(a, b); }
+Q h_sq(Q a) { return amulD(a, a); }
+Q h_inv(Q a) { return ainvD(a); }
+Q f_abs(Q a) { vec4 s = 2.0 * step(0.0, a.hi) - 1.0; return Q(a.hi * s, a.lo * s); }
+Q f_conj(Q a) { vec4 m = vec4(1.0, -1.0, -1.0, -1.0); return Q(a.hi * m, a.lo * m); }
+Q f_norm(Q a) { return dlift(vec4(length(a.hi), 0.0, 0.0, 0.0)); }
+Q f_re(Q a) { return Q(vec4(a.hi.x, 0.0, 0.0, 0.0), vec4(a.lo.x, 0.0, 0.0, 0.0)); }
+#else
+#define VAL vec4
+#define POS vec3
+#define VHI(x) (x)
+#define VLIFT(x) (x)
+#define PHI(p) (p)
+vec4 liftV(vec4 a) { return a; }
+vec4 h_add(vec4 a, vec4 b) { return a + b; }
+vec4 h_sub(vec4 a, vec4 b) { return a - b; }
+vec4 h_neg(vec4 a) { return -a; }
+vec4 h_scl(vec4 a, float k) { return a * k; }
+vec4 h_mul(vec4 a, vec4 b) { return amul(a, b); }
+vec4 h_sq(vec4 a) { return amul(a, a); }
+vec4 h_inv(vec4 a) { return ainv(a); }
+vec4 f_abs(vec4 a) { return abs(a); }
+vec4 f_conj(vec4 a) { return vec4(a.x, -a.yzw); }
+vec4 f_norm(vec4 a) { return vec4(length(a), 0.0, 0.0, 0.0); }
+vec4 f_re(vec4 a) { return vec4(a.x, 0.0, 0.0, 0.0); }
+#endif
+
+// value + upper bound of |d value / d point| (classic running scalar derivative)
+struct S { VAL v; float d; };
+S liftS(vec4 a) { return S(VLIFT(a), 0.0); }
+S h_add(S a, S b) { return S(h_add(a.v, b.v), a.d + b.d); }
+S h_sub(S a, S b) { return S(h_sub(a.v, b.v), a.d + b.d); }
+S h_neg(S a) { return S(h_neg(a.v), a.d); }
+S h_scl(S a, float k) { return S(h_scl(a.v, k), a.d * abs(k)); }
+S h_mul(S a, S b) { return S(h_mul(a.v, b.v), opn(VHI(a.v)) * b.d + a.d * opn(VHI(b.v))); }
+S h_sq(S a) { return S(h_sq(a.v), 2.0 * opn(VHI(a.v)) * a.d); }
+S h_inv(S a) { VAL r = h_inv(a.v); float k = opn(VHI(r)); return S(r, a.d * k * k); }
+S f_abs(S a) { return S(f_abs(a.v), a.d); }
+S f_conj(S a) { return S(f_conj(a.v), a.d); }
+S f_norm(S a) { return S(f_norm(a.v), a.d); }
+S f_re(S a) { return S(f_re(a.v), a.d); }
+`;
+
+const GLSL_TYPES_J = `
+// value + exact Jacobian: column i is the derivative along the i-th axis of the 3D slice (derivatives stay in float)
+struct J { VAL v; mat3x4 d; };
+J liftJ(vec4 a) { return J(VLIFT(a), mat3x4(0.0)); }
+J h_add(J a, J b) { return J(h_add(a.v, b.v), a.d + b.d); }
+J h_sub(J a, J b) { return J(h_sub(a.v, b.v), a.d - b.d); }
+J h_neg(J a) { return J(h_neg(a.v), -a.d); }
+J h_scl(J a, float k) { return J(h_scl(a.v, k), a.d * k); }
+J h_mul(J a, J b) { vec4 av = VHI(a.v), bv = VHI(b.v); return J(h_mul(a.v, b.v), ${J3((i) => `amul(a.d[${i}], bv) + amul(av, b.d[${i}])`)}); }
+J h_sq(J a) { return h_mul(a, a); }
+J h_inv(J a) { VAL R = h_inv(a.v); vec4 r = VHI(R); return J(R, ${J3((i) => `-amul(r, amul(a.d[${i}], r))`)}); }
+J f_abs(J a) { vec4 s = sign(VHI(a.v)); return J(f_abs(a.v), ${J3((i) => `a.d[${i}] * s`)}); }
+J f_conj(J a) { vec4 m = vec4(1.0, -1.0, -1.0, -1.0); return J(f_conj(a.v), ${J3((i) => `a.d[${i}] * m`)}); }
+J f_norm(J a) { vec4 v = VHI(a.v); vec3 g = v * a.d / max(length(v), 1e-30); return J(f_norm(a.v), mat3x4(vec4(g.x, 0.0, 0.0, 0.0), vec4(g.y, 0.0, 0.0, 0.0), vec4(g.z, 0.0, 0.0, 0.0))); }
+J f_re(J a) { return J(f_re(a.v), ${J3((i) => `vec4(a.d[${i}].x, 0.0, 0.0, 0.0)`)}); }
+`;
+
+const GLSL_PAL = `
+uniform int uPalette;
+uniform float uHue;
+vec3 lin(vec3 c) { return pow(clamp(c, 0.0, 1.0), vec3(2.2)); }
+vec3 pal(float t) {
+  vec3 a = vec3(0.5), b = vec3(0.5), c = vec3(1.0), d;
+  if (uPalette == 0) { a = vec3(0.56, 0.44, 0.33); b = vec3(0.44, 0.36, 0.28); d = vec3(0.0, 0.08, 0.18); }
+  else if (uPalette == 1) { d = vec3(0.0, 0.33, 0.67); }
+  else if (uPalette == 2) { a = vec3(0.45, 0.55, 0.66); b = vec3(0.35, 0.33, 0.32); d = vec3(0.55, 0.6, 0.65); }
+  else if (uPalette == 3) { a = vec3(0.62, 0.42, 0.42); b = vec3(0.38, 0.3, 0.3); d = vec3(0.0, 0.15, 0.22); }
+  else { a = vec3(0.42, 0.5, 0.36); b = vec3(0.32, 0.36, 0.26); d = vec3(0.12, 0.22, 0.32); }
+  return a + b * cos(6.2831853 * (c * t + d));
+}
+uniform int uTrapMode;
+uniform vec4 uTrapPoint;
+uniform float uExposure;
+// orbit trap: squared distance from an orbit point to the chosen shape
+float trapDist(vec4 z) {
+  if (uTrapMode == 1) { vec4 d = z - uTrapPoint; return dot(d, d); }
+  if (uTrapMode == 2) { vec3 a = abs(z.xyz); float m = min(a.x, min(a.y, a.z)); return m * m; }
+  if (uTrapMode == 3) return min(dot(z.yz, z.yz), min(dot(z.xz, z.xz), dot(z.xy, z.xy)));
+  return dot(z, z);
+}
+// escape-time color: dark far from the set, bright near it
+vec3 escColor(float nu, float dens) { return lin(pal(uHue + nu * dens) * (1.0 - exp(-0.1 * max(nu + 1.0, 0.0)))); }
+`;
+
+const GLSL_MAIN = `
+uniform vec2 uRes, uJitter;
+uniform vec3 uCamPos, uCamPosLo, uLight;
+uniform mat3 uCamRot;
+uniform float uFov, uW, uWLo, uCamPlane;
+uniform mat4 uBasis, uPlaneBasis;   // columns: 4D directions of the slice x, y, z axes and of the hidden axis
+uniform vec4 uC, uZ0, uPlane;       // uPlane: cut plane normal and offset; the half-space dot(p, n) > offset is removed
+uniform int uIter, uIter2D, uSteps, uShadowSteps, uColorMode, uLite, uLinDE;
+uniform float uB2, uLogBail, uPix, uFudge, uBound, uPlaneAlpha, uDens2D, uDeg, uColorScale;
+uniform float uGlow, uFog, uSceneScale, uAperture, uFocus, uSeed;
+uniform float uIterPerDec, uCamDE, uPixIter;   // uPixIter: pixel of the final image, drives the iteration count
+uniform float uDepthScale;                      // alpha output = visible distance / uDepthScale (for preview reprojection)
+// Hit tolerance of the current sample. The iteration limit follows it: the region "not escaped after N
+// iterations" must be thinner than what a pixel can show, otherwise it shows up as blobs. Tying N to the
+// sample (not to the camera) keeps the surface identical while the camera moves.
+float gEps = 1e-6;
+int iterFor(float eps) { return min(uIter + int(max(0.0, uIterPerDec * (log(uBound / max(eps, 1e-30)) * 0.4342945 - 3.0))), 4000); }
+uniform vec3 uLightCol, uFillCol, uFillDir, uSkyTop, uSkyBot;
+// uLightMode 0: directional (uLight); 1, 2: point light at uLightPos, relative to the camera, with range uLightRange
+uniform int uLightMode;
+uniform vec3 uLightPos;
+uniform float uLightRange, uLampHalo;
+uniform float uAmb, uSpec, uShine, uShadowK, uGlowHue;
+out vec4 outColor;
+
+#ifdef DF64
+POS camPos() { return Q(vec4(uCamPos, 0.0), vec4(uCamPosLo, 0.0)); }
+POS padd(POS p, vec3 d) { return dadd(p, dlift(vec4(d, 0.0))); }
+VAL toQb(POS p, mat4 B) {
+  Q r = dmulf(Q(p.hi.xxxx, p.lo.xxxx), B[0]);
+  r = dadd(r, dmulf(Q(p.hi.yyyy, p.lo.yyyy), B[1]));
+  r = dadd(r, dmulf(Q(p.hi.zzzz, p.lo.zzzz), B[2]));
+  return dadd(r, dmulf(Q(vec4(uW), vec4(uWLo)), B[3]));
+}
+float cutSD(POS p) {
+  Q s = dmulf(p, vec4(uPlane.xyz, 0.0));
+  Q t = dadd(Q(s.hi.xxxx, s.lo.xxxx), Q(s.hi.yyyy, s.lo.yyyy));
+  t = dadd(dadd(t, Q(s.hi.zzzz, s.lo.zzzz)), dlift(vec4(-uPlane.w)));
+  return t.hi.x + t.lo.x;
+}
+#else
+POS camPos() { return uCamPos; }
+POS padd(POS p, vec3 d) { return p + d; }
+VAL toQb(POS p, mat4 B) { return B * vec4(p, uW); }
+float cutSD(POS p) { return dot(p, uPlane.xyz) - uPlane.w; }
+#endif
+
+// Distance estimate 0.5·|z|·ln|z| / |z'| with the scalar derivative bound
+float deS(POS p, out vec2 info) {
+  VAL P = toQb(p, uBasis);
+#ifdef JULIA
+  S z = S(P, 1.0); S c = liftS(uC);
+#else
+  S z = liftS(uZ0); S c = S(P, 1.0);
+#endif
+  float r2 = 0.0, trap = 1e20;
+  int n = 0;
+  int nMax = iterFor(gEps);
+  for (; n < nMax; n++) { z = formula(z, c, n); vec4 zv = VHI(z.v); r2 = dot(zv, zv); trap = min(trap, trapDist(zv)); if (!(r2 <= uB2)) break; }
+  info = vec2(trap, float(n));
+  if (r2 <= uB2) return 0.0;
+  if (!(r2 < 1e36) || !(z.d > 0.0)) return 4.0 * gEps;
+  // polynomial escape: 0.5·r·ln r / dr; folds (Mandelbox, KIFS) grow linearly in dr: r / dr
+  return uLinDE == 1 ? sqrt(r2) / z.d : 0.25 * log(r2) * sqrt(r2) / z.d;
+}
+
+#ifdef JAC
+// Same estimate from the true gradient of the escape potential: grad log|z| = Jᵀz / |z|²
+float deJ(POS p, out vec2 info, out vec3 grad) {
+  VAL P = toQb(p, uBasis);
+  mat3x4 E = mat3x4(uBasis[0], uBasis[1], uBasis[2]);
+#ifdef JULIA
+  J z = J(P, E); J c = liftJ(uC);
+#else
+  J z = liftJ(uZ0); J c = J(P, E);
+#endif
+  float r2 = 0.0, trap = 1e20;
+  int n = 0;
+  int nMax = iterFor(gEps);
+  for (; n < nMax; n++) { z = formula(z, c, n); vec4 zv = VHI(z.v); r2 = dot(zv, zv); trap = min(trap, trapDist(zv)); if (!(r2 <= uB2)) break; }
+  info = vec2(trap, float(n));
+  grad = vec3(0.0);
+  if (r2 <= uB2) return 0.0;
+  if (!(r2 < 1e36)) return 4.0 * gEps;
+  grad = VHI(z.v) * z.d;
+  float g = length(grad);
+  if (!(g > 0.0)) return 4.0 * gEps;
+  return uLinDE == 1 ? r2 / g : 0.25 * log(r2) * r2 / g;
+}
+#endif
+
+// Unscaled distance estimate: the hit test must see the real value. uFudge only shortens the steps;
+// applying it here as well would fatten the surface by 1/uFudge.
+float mapMain(POS p, out vec2 info, out vec3 grad) {
+#ifdef JAC
+  float d = deJ(p, info, grad);
+#else
+  grad = vec3(0.0);
+  float d = deS(p, info);
+#endif
+#ifdef CUT
+  d = max(d, cutSD(p));
+#endif
+  return d;
+}
+
+float mapS(POS p) {
+  vec2 info;
+  float d = deS(p, info) * uFudge;
+#ifdef CUT
+  d = max(d, cutSD(p));
+#endif
+  return d;
+}
+
+vec3 normalS(POS p, float h) {
+  vec2 k = vec2(1.0, -1.0), info;
+  vec3 g = k.xyy * deS(padd(p, k.xyy * h), info) + k.yyx * deS(padd(p, k.yyx * h), info) + k.yxy * deS(padd(p, k.yxy * h), info) + k.xxx * deS(padd(p, k.xxx * h), info);
+  return dot(g, g) > 0.0 ? normalize(g) : vec3(0.0, 1.0, 0.0);
+}
+
+vec2 sphere(vec3 ro, vec3 rd, float r) {
+  float b = dot(ro, rd), c = dot(ro, ro) - r * r, h = b * b - c;
+  if (h < 0.0) return vec2(-1.0);
+  h = sqrt(h);
+  return vec2(-b - h, -b + h);
+}
+
+vec3 surfaceColor(vec2 info, vec3 n) {
+  if (uColorMode == 2) return lin(0.5 + 0.5 * n) * 0.85;
+  if (uColorMode == 3) return vec3(0.42, 0.38, 0.33);
+  float t = uColorMode == 0 ? 0.12 * log(info.x + 1e-8) : 0.06 * info.y;
+  return lin(pal(uHue + uColorScale * t));
+}
+
+vec3 background(vec3 rd) {
+  float k = 0.5 + 0.5 * rd.y;
+  return mix(uSkyBot, uSkyTop, k * k);
+}
+
+#ifdef SHADOWS
+float softShadow(POS ro, vec3 L, float eps, float tLight) {
+  float tmax = min(max(sphere(PHI(ro), L, uBound).y, 0.0), tLight), res = 1.0, t = eps * 4.0;
+  for (int i = 0; i < uShadowSteps; i++) {
+    float h = mapS(padd(ro, L * t));
+    res = min(res, uShadowK * h / t);
+    if (res < 0.005) return 0.0;
+    t += clamp(h, eps, 0.25);
+    if (t > tmax) break;
+  }
+  return smoothstep(0.0, 1.0, res);
+}
+#endif
+
+#if AO == 2
+// sample radius follows the hit distance, so the look does not change with zoom depth
+float calcAO(POS p, vec3 n, float t) {
+  float k = 0.25 * t, occ = 0.0, sca = 1.0;
+  for (int i = 0; i < 5; i++) {
+    float h = k * (0.012 + 0.05 * float(i));
+    occ += (h - mapS(padd(p, n * h))) / k * sca;
+    sca *= 0.8;
+  }
+  return clamp(1.0 - 2.5 * occ, 0.0, 1.0);
+}
+#endif
+
+vec3 shade(POS p, vec3 rd, float t, vec2 info, vec3 grad, float steps) {
+  float eps = uPix * t;
+  gEps = uPixIter * t;
+#ifdef JAC
+  vec3 n = dot(grad, grad) > 0.0 ? normalize(grad) : normalS(p, eps);
+#else
+  vec3 n = normalS(p, eps);
+#endif
+  if (dot(n, rd) > 0.0) n = -n;
+  vec3 base = surfaceColor(info, n);
+  // key light: a direction, or a point light near the camera (its position is relative to the camera, so the
+  // vector to it is exact at any zoom depth) with inverse-square falloff beyond its range
+  vec3 L = uLight;
+  float atten = 1.0, tLight = 1e30;
+  if (uLightMode != 0) {
+    vec3 v = uLightPos - rd * t;
+    tLight = length(v);
+    L = v / tLight;
+    atten = 1.0 / (1.0 + tLight * tLight / (uLightRange * uLightRange));
+  }
+  float dif = max(dot(n, L), 0.0) * atten, sh = 1.0, ao = 1.0;
+#ifdef SHADOWS
+  if (uLite == 0 && dif > 0.0) sh = softShadow(padd(p, n * eps * 2.0), L, eps, tLight);
+#endif
+#if AO == 1
+  ao = 1.0 / (1.0 + steps * 0.012);
+#elif AO == 2
+  ao = uLite == 0 ? calcAO(p, n, t) : 1.0 / (1.0 + steps * 0.012);
+#endif
+  // ambient from the sky colors, key light with shadows, unshadowed fill light, specular and a little rim
+  vec3 sky = mix(uSkyBot, uSkyTop, 0.5 + 0.5 * n.y);
+  vec3 amb = uAmb * ao * (0.55 + 0.45 * n.y) * mix(vec3(1.0), sky / max(dot(sky, vec3(0.3333)), 1e-5), 0.5);
+  vec3 h = normalize(L - rd);
+  float spe = pow(max(dot(n, h), 0.0), uShine) * dif;   // dif already carries the falloff
+  float fre = pow(clamp(1.0 + dot(n, rd), 0.0, 1.0), 3.0);
+  vec3 fill = uFillCol * max(dot(n, uFillDir), 0.0) * (0.5 + 0.5 * ao);
+  return base * (amb + uLightCol * dif * sh + fill) + uSpec * spe * sh * uLightCol + 0.1 * fre * ao * base;
+}
+
+#ifdef CUT
+// Plain escape-time iteration on the cut plane: the classic 2D picture of this (possibly 4D-tilted) plane
+bool slice2D(POS q, out vec3 col, out vec2 info) {
+  VAL P = toQb(q, uPlaneBasis);
+#ifdef JULIA
+  VAL z = P; VAL c = VLIFT(uC);
+#else
+  VAL z = VLIFT(uZ0); VAL c = P;
+#endif
+  float r2 = 0.0, trap = 1e20;
+  int n = 0;
+  for (; n < uIter2D; n++) { z = formula(z, c, n); vec4 zv = VHI(z); r2 = dot(zv, zv); trap = min(trap, trapDist(zv)); if (!(r2 <= uB2)) break; }
+  info = vec2(trap, float(n));
+  col = vec3(0.0);
+  if (r2 <= uB2) return true;
+  float nu = float(n);
+  if (r2 < 1e30) nu += 1.0 - log(max(0.5 * log(r2) / uLogBail, 1e-6)) / log(uDeg);
+  col = escColor(nu, uDens2D);
+  return false;
+}
+#endif
+
+vec2 hash2(vec2 p) {
+  vec3 q = fract(vec3(p.xyx) * vec3(0.1031, 0.1030, 0.0973) + uSeed);
+  q += dot(q, q.yzx + 33.33);
+  return fract((q.xx + q.yz) * q.zy);
+}
+
+void main() {
+  vec2 fc = gl_FragCoord.xy + uJitter;
+  vec2 uv = (2.0 * fc - uRes) / uRes.y;
+  vec3 rd = normalize(uCamRot * vec3(uv * uFov, -1.0));
+  // thin lens: shift the eye across the aperture and re-aim the ray at the same point of the focal plane
+  vec3 lens = vec3(0.0);
+  if (uAperture > 0.0 && uLite == 0) {
+    vec2 h = hash2(gl_FragCoord.xy);
+    float a = 6.2831853 * h.x, r = sqrt(h.y) * uAperture * uFocus;
+    lens = uCamRot[0] * (r * cos(a)) + uCamRot[1] * (r * sin(a));
+    rd = normalize(rd * (uFocus / dot(rd, -uCamRot[2])) - lens);
+  }
+  POS ro = padd(camPos(), lens);
+  vec3 roF = uCamPos + lens;
+  float camPlane = uCamPlane - dot(lens, uPlane.xyz);
+  vec3 col = background(rd);
+
+  bool hit = false;
+  float tHit = 1e20, glow = 0.0, tVis = -1.0;
+  vec2 info = vec2(0.0);
+  vec3 grad = vec3(0.0);
+  vec2 sp = sphere(roF, rd, uBound);
+  if (sp.y > 0.0) {
+    float t = max(sp.x, 0.0);
+    int i = 0;
+    // the pixel is a cone of radius uPix·t; ratio = distance in units of that radius
+    float ratio = 1e30;
+    for (; i < uSteps; i++) {
+      gEps = uPixIter * max(t, 0.5 * uCamDE);
+      float d = mapMain(padd(ro, rd * t), info, grad);
+      // volumetric glow: every step that passes close to the surface adds a little light
+      glow += exp(-d / (0.03 * t + 1e-30));
+      ratio = d / (uPix * t + 1e-30);
+      if (ratio < 1.0) { hit = true; break; }
+      // never step less than half the pixel cone: anything thinner is invisible anyway, and creeping along a
+      // grazing surface would otherwise run out of steps
+      t += max(d * uFudge, 0.5 * uPix * t);
+      if (t > sp.y) break;
+    }
+    // out of steps counts as a hit only right at a surface, not for rays still far from everything
+    if (i == uSteps && ratio < 2.0) hit = true;
+    if (hit) {
+      tHit = t; tVis = t;
+      col = shade(padd(ro, rd * t), rd, t, info, grad, float(i));
+      // fog measured in units of the current scene scale, so it looks the same at any zoom depth
+      col = mix(col, background(rd), 1.0 - exp(-uFog * t / uSceneScale));
+    }
+  }
+
+#ifdef CUT
+  vec3 pn = uPlane.xyz;
+  float dn = dot(rd, pn);
+  if (abs(dn) > 1e-9) {
+    float tp = camPlane / dn;    // uCamPlane = offset − dot(camera, n), computed in double on the CPU
+    POS q = padd(ro, rd * tp);
+    vec3 qh = PHI(q);
+    float margin = 4.0 * uPix * tp / max(abs(dn), 0.05);
+    if (tp > 0.0 && dot(qh, qh) < uBound * uBound && (!hit || tHit > tp - margin)) {
+      vec3 pc; vec2 pinfo;
+      if (slice2D(q, pc, pinfo)) {
+        vec3 nf = dn < 0.0 ? pn : -pn;
+        col = surfaceColor(pinfo, nf) * (0.3 + 0.8 * max(dot(nf, uLight), 0.0));
+        tVis = tp;
+      } else {
+        float a = uPlaneAlpha * smoothstep(uBound, uBound * 0.93, length(qh));
+        col = mix(col, pc, a);
+        if (a > 0.5) tVis = tp;
+      }
+      // rim of the plane disc, so its tilt stays readable whatever is drawn on it
+      float rim = 1.0 - smoothstep(0.0, 0.006 * uBound, abs(length(qh) - 0.965 * uBound));
+      col = mix(col, vec3(0.81, 0.47, 0.1), 0.75 * rim);
+    }
+  }
+#endif
+
+  // the lantern itself: a small halo where the ray passes it, unless a surface is in front of it
+  if (uLightMode == 2 && uLampHalo > 0.0) {
+    float tl = dot(uLightPos, rd);
+    if (tl > 0.0 && (tVis < 0.0 || tl < tVis)) {
+      float a = length(uLightPos - rd * tl) / (0.03 * tl);
+      col += uLightCol * uLampHalo * exp(-a * a);
+    }
+  }
+  col += uGlow * 0.02 * glow * lin(pal(uHue + uGlowHue));
+  outColor = vec4(pow(max(col * uExposure, 0.0), vec3(1.0 / 2.2)), tVis < 0.0 ? -1.0 : tVis / uDepthScale);
+}
+`;
+
+// 2D view of the cut plane. With PERT the GPU iterates only the small deviation from a reference orbit
+// computed in arbitrary precision on the CPU (with rebasing), so zoom depth is not limited by float.
+const GLSL_2D = `
+uniform vec2 uRes, uJitter, uOffset;
+uniform float uHalf, uB2, uLogBail, uDeg, uDens2D;
+uniform vec4 uA, uB, uC, uZ0, uCref;
+uniform int uIter2D, uRefLen;
+uniform highp sampler2D uOrbit;
+out vec4 outColor;
+
+vec4 Zref(int m) { return texelFetch(uOrbit, ivec2(m & 1023, m >> 10), 0); }
+
+void main() {
+  vec2 uv = (2.0 * (gl_FragCoord.xy + uJitter) - uRes) / uRes.y;
+  vec2 pl = uOffset + uv * uHalf;          // plane coordinates relative to the reference point
+  vec4 d4 = pl.x * uA + pl.y * uB;
+  float r2 = 0.0, trap = 1e20;
+  int n = 0;
+  bool esc = false;
+#ifdef PERT
+#ifdef JULIA
+  vec4 C = uC, dc = vec4(0.0), dz = d4;
+#else
+  vec4 C = uCref, dc = d4, dz = vec4(0.0);
+#endif
+  int m = 0;
+  for (; n < uIter2D; n++) {
+    dz = pert(Zref(m), C, dz, dc);
+    m++;
+    vec4 zf = Zref(m) + dz;
+    r2 = dot(zf, zf);
+    trap = min(trap, trapDist(zf));
+    if (r2 > uB2) { esc = true; break; }
+    // rebasing: once the full orbit comes closer to 0 than the delta, restart the reference from its beginning
+    if (r2 < dot(dz, dz) || m >= uRefLen - 1) { dz = zf - Zref(0); m = 0; }
+  }
+#else
+  vec4 P = uCref + d4;
+#ifdef JULIA
+  vec4 z = P, c = uC;
+#else
+  vec4 z = uZ0, c = P;
+#endif
+  for (; n < uIter2D; n++) { z = formula(z, c, n); r2 = dot(z, z); trap = min(trap, trapDist(z)); if (!(r2 <= uB2)) { esc = true; break; } }
+#endif
+  vec3 col;
+  if (!esc) col = lin(pal(uHue + 0.12 * log(trap + 1e-8))) * 0.22;
+  else {
+    float nu = float(n);
+    if (r2 < 1e30) nu += 1.0 - log(max(0.5 * log(r2) / uLogBail, 1e-6)) / log(uDeg);
+    col = escColor(nu, uDens2D);
+  }
+  outColor = vec4(pow(max(col * uExposure, 0.0), vec3(1.0 / 2.2)), 1.0);
+}
+`;
+const GLSL_PERT_HELPERS = `
+vec4 cj(vec4 a) { return vec4(a.x, -a.yzw); }
+// |X + x| − |X| per component without cancellation
+vec4 diffabs(vec4 X, vec4 x) {
+  vec4 s = X + x;
+  vec4 pos = mix(-x - 2.0 * X, x, vec4(greaterThanEqual(s, vec4(0.0))));
+  vec4 neg = mix(-x, x + 2.0 * X, vec4(greaterThan(s, vec4(0.0))));
+  return mix(neg, pos, vec4(greaterThanEqual(X, vec4(0.0))));
+}
+float dnorm(vec4 X, vec4 x) { return (2.0 * dot(X, x) + dot(x, x)) / (length(X + x) + length(X) + 1e-30); }
+`;
+
+function shaderCommon(asts, { jac, df, view2d }) {
+  const used = new Set();
+  const bodies = asts.map((a) => gen(a, used));
+  let src = `uniform float uParam[${MAX_PARAMS}];\n` + GLSL_COMPLEX + (S.alg === 0 ? GLSL_QUAT : GLSL_BICOMPLEX);
+  if (df) src += GLSL_DF + (S.alg === 0 ? GLSL_DF_QUAT : GLSL_DF_BI);
+  src += GLSL_VAL + (jac ? GLSL_TYPES_J : "");
+  for (const f of used) if (INTR[f]) src += intrinsicGLSL(f, S.alg, jac, df);
+  for (const f of used) if (FOLDS[f]) src += foldGLSL(f, jac, df);
+  for (const m of used.pows || []) {
+    src += powGLSL(m, "VAL");
+    src += `S h_pw${m}(S a) { return S(h_pw${m}(a.v), ${glf(m)} * pow(opn(VHI(a.v)), ${glf(m - 1)}) * a.d); }\n`;
+    if (jac) src += powGLSL(m, "J");
+  }
+  // hybrid: slot i runs S.slots[i].n iterations in a row, then the next slot, cyclically
+  const period = S.slots.reduce((a, sl) => a + sl.n, 0);
+  let cum = 0;
+  const pick = S.slots.map((sl, i) => {
+    cum += sl.n;
+    return i < S.slots.length - 1 ? `if (k < ${cum}) return formula${i}(z, c); ` : `return formula${i}(z, c);`;
+  }).join("");
+  for (const [T, L] of [["VAL", "liftV("], ...(view2d ? [] : [["S", "liftS("]]), ...(jac ? [["J", "liftJ("]] : [])]) {
+    bodies.forEach((b, i) => { src += `${T} formula${i}(${T} z, ${T} c) { return ${b.replaceAll("LIFT(", L)}; }\n`; });
+    src += bodies.length === 1
+      ? `${T} formula(${T} z, ${T} c, int n) { return formula0(z, c); }\n`
+      : `${T} formula(${T} z, ${T} c, int n) { int k = n % ${period}; ${pick} }\n`;
+  }
+  return src;
+}
+const header = (defs) => `#version 300 es\nprecision highp float;\nprecision highp int;\n${defs.filter(Boolean).join("\n")}\n`;
+
+const derivJac = () => (S.deriv === 2 ? !RT.nonSmooth : S.deriv === 0);
+function build3D(asts) {
+  const jac = derivJac(), df = RT.useDF;
+  const src = header([jac && "#define JAC", S.julia && "#define JULIA", S.cut && "#define CUT", S.shadows && "#define SHADOWS", `#define AO ${S.ao}`, df && "#define DF64"]) +
+    shaderCommon(asts, { jac, df }) + GLSL_PAL + GLSL_MAIN;
+  return { src, kind: "3d", pert: false };
+}
+function build2D(asts) {
+  let pert = null;
+  try {
+    if (asts.length > 1) throw new Error("hybrid formula");
+    pert = genPert(asts[0]); RT.pertWhy = "";
+  } catch (e) { RT.pertWhy = e.message; }
+  const src = header([S.julia && "#define JULIA", pert && "#define PERT"]) +
+    shaderCommon(asts, { jac: false, df: false, view2d: true }) + (pert ? GLSL_PERT_HELPERS + pert : "") + GLSL_PAL + GLSL_2D;
+  return { src, kind: "2d", pert: !!pert };
+}
+
+// ---------------------------------------------------------------- GL plumbing
+const VS = `#version 300 es
+in vec2 aPos;
+void main() { gl_Position = vec4(aPos, 0.0, 1.0); }`;
+const PRESENT_FS = `#version 300 es
+precision highp float;
+uniform sampler2D uFull, uPrev;
+uniform vec2 uSize;
+uniform float uSplit, uVignette;
+out vec4 o;
+void main() {
+  vec2 uv = gl_FragCoord.xy / uSize;
+  vec3 c = uv.y < uSplit ? texture(uFull, uv).rgb : texture(uPrev, uv).rgb;
+  vec2 q = (uv - 0.5) * vec2(uSize.x / uSize.y, 1.0);
+  o = vec4(c * (1.0 - uVignette * dot(q, q)), 1.0);
+}`;
+
+// Temporal accumulation of the preview while the camera moves: every preview frame is jittered by a sub-pixel
+// offset, the previous accumulated frame is reprojected to the new camera using each pixel's depth, and the new
+// frame is blended in. Pixels that were hidden before (depth mismatch) take the new frame only.
+const REPROJECT_FS = `#version 300 es
+precision highp float;
+uniform sampler2D uNew, uHist;
+uniform vec2 uSize;
+uniform mat3 uRotNew, uRotPrev;
+uniform vec3 uDelta;          // new camera position − previous camera position
+uniform float uFov, uBlend, uScaleNew, uScalePrev;
+uniform int uValid;
+out vec4 o;
+void main() {
+  vec4 n = texelFetch(uNew, ivec2(gl_FragCoord.xy), 0);
+  if (uValid == 0) { o = n; return; }
+  vec2 sc = (2.0 * gl_FragCoord.xy - uSize) / uSize.y;
+  vec3 rd = normalize(uRotNew * vec3(sc * uFov, -1.0));
+  bool sky = n.a < 0.0;
+  vec3 q = sky ? rd : rd * (n.a * uScaleNew) + uDelta;     // the same point, relative to the previous camera
+  vec3 l = transpose(uRotPrev) * q;
+  if (l.z >= 0.0) { o = n; return; }
+  vec2 uv = vec2(l.x / (-l.z * uFov) * uSize.y / uSize.x, l.y / (-l.z * uFov)) * 0.5 + 0.5;
+  if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) { o = n; return; }
+  vec4 hc = texture(uHist, uv);
+  float tq = length(q) / uScalePrev;
+  bool ok = sky ? hc.a < 0.0 : (hc.a > 0.0 && abs(hc.a - tq) < 0.04 * tq);
+  o = ok ? vec4(mix(hc.rgb, n.rgb, uBlend), n.a) : n;
+}`;
+
+function shader(type, src) {
+  const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  return s;
+}
+const vsShader = shader(gl.VERTEX_SHADER, VS);
+function uniformsOf(p) {
+  const u = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for (let i = 0; i < n; i++) { const info = gl.getActiveUniform(p, i); u[info.name.replace(/\[0\]$/, "")] = gl.getUniformLocation(p, info.name); }
+  return u;
+}
+function linkNow(fsSrc) {
+  const f = shader(gl.FRAGMENT_SHADER, fsSrc), p = gl.createProgram();
+  gl.attachShader(p, vsShader); gl.attachShader(p, f); gl.bindAttribLocation(p, 0, "aPos"); gl.linkProgram(p);
+  return { p, f };
+}
+function linkSync(fsSrc, what) {
+  const { p, f } = linkNow(fsSrc);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) fail(`Shader error (${what}):\n` + gl.getShaderInfoLog(f));
+  return { p, u: uniformsOf(p) };
+}
+const presentProg = linkSync(PRESENT_FS, "present");
+const reprojProg = linkSync(REPROJECT_FS, "reprojection");
+
+const vbo = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, vbo);
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+gl.enableVertexAttribArray(0);
+gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+function makeTarget() { const t = { fb: gl.createFramebuffer(), tex: gl.createTexture(), w: 0, h: 0 }; sizeTarget(t, 1, 1); return t; }
+function sizeTarget(t, w, h) {
+  if (t.w === w && t.h === h) return;
+  t.w = w; t.h = h;
+  gl.bindTexture(gl.TEXTURE_2D, t.tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, floatFB ? gl.RGBA16F : gl.RGBA8, w, h, 0, gl.RGBA, floatFB ? gl.HALF_FLOAT : gl.UNSIGNED_BYTE, null);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, t.fb);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t.tex, 0);
+  gl.clearColor(0.043, 0.051, 0.07, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+}
+const syncPx = floatFB ? new Float32Array(4) : new Uint8Array(4);
+// Blocks until the GPU has finished, so strip timings are real
+function gpuSync() { gl.readPixels(0, 0, 1, 1, gl.RGBA, floatFB ? gl.FLOAT : gl.UNSIGNED_BYTE, syncPx); }
+
+const orbitTex = gl.createTexture();
+gl.bindTexture(gl.TEXTURE_2D, orbitTex);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+// Some drivers break double-float tricks (fused or reassociated float math); check once on this GPU
+const dfOK = (() => {
+  if (!floatFB) return false;
+  try {
+    const pr = linkSync(`#version 300 es\nprecision highp float;\n${GLSL_DF}
+uniform float uTiny;
+out vec4 o;
+void main() {
+  Q a = dadd(dlift(vec4(1.0)), dlift(vec4(uTiny)));
+  Q m = dmul(a, a);
+  o = vec4(a.lo.x / uTiny, m.lo.x / (2.0 * uTiny), 0.0, 1.0);
+}`, "df64 self-test");
+    const t = makeTarget();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, t.fb); gl.viewport(0, 0, 1, 1);
+    gl.useProgram(pr.p); gl.uniform1f(pr.u.uOne, 1); gl.uniform1f(pr.u.uTiny, 2 ** -30);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    const px = new Float32Array(4); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.FLOAT, px);
+    return Math.abs(px[0] - 1) < 0.01 && Math.abs(px[1] - 1) < 0.01;
+  } catch (e) { errBox.hidden = true; return false; }
+})();
+
+// ---------------------------------------------------------------- compile (async when KHR_parallel_shader_compile exists)
+const progCache = new Map();
+const RT = {
+  fly: "idle", flyAt: 0,
+  paramNames: [], paramIndex: {},
+  prog: null, pending: null, asts: null, sched: null, hasFold: false, nonSmooth: false, seed: 0, sceneVer: 0, pframe: 0, hist: null, full: makeTarget(), prev: makeTarget(),
+  cur: makeTarget(), hA: makeTarget(), hB: makeTarget(),
+  phase: "preview", sample: 0, row: 0, col: 0, jit: [0, 0], split: -1, ps: 0.04, msPerPx: 1e-4,
+  lastChange: 0, fullStart: 0, doneMs: 0, prevMs: 0, compileMs: 0, deg: 2, useDF: false, camDE: 1, lastDE: 1, iterEff: 14, precWarn: false, pertWhy: "",
+};
+
+const usesFn = (n, names) => n.t === "fn" ? names.includes(n.f) || usesFn(n.a, names) : n.t === "op" ? usesFn(n.a, names) || usesFn(n.b, names) : n.t === "neg" ? usesFn(n.a, names) : false;
+function markSlots(bad, msg) {
+  [...$("slots").querySelectorAll(".expr")].forEach((inp, i) => inp.classList.toggle("bad", i === bad));
+  $("exprMsg").textContent = msg || "";
+}
+function requestCompile() {
+  const asts = [];
+  for (const [i, sl] of S.slots.entries()) {
+    try { asts.push(parseFormula(sl.f)); }
+    catch (e) { markSlots(i, (S.slots.length > 1 ? `Formula ${i + 1}: ` : "") + e.message); return; }
+  }
+  const names = [];
+  for (const a of asts) collectParams(a, names);
+  if (names.length > MAX_PARAMS) { markSlots(0, `Too many parameters (${names.length}); at most ${MAX_PARAMS}.`); return; }
+  markSlots(-1);
+  for (const nm of names) if (!(nm in S.params)) S.params[nm] = 1;
+  RT.paramNames = names;
+  RT.paramIndex = Object.fromEntries(names.map((nm, i) => [nm, i]));
+  renderParams();
+  RT.asts = asts;
+  RT.sched = S.slots.flatMap((sl, i) => Array(sl.n).fill(asts[i]));
+  RT.hasFold = asts.some((a) => usesFn(a, ["boxfold", "spherefold"]));
+  // the Jacobian estimate is exact for smooth algebraic formulas but overshoots across folds, abs and the
+  // non-conformal Mandelbulb power; there the scalar bound is both more accurate and cheaper
+  RT.nonSmooth = asts.some((a) => usesFn(a, ["boxfold", "spherefold", "abs", "bulb", "norm"]));
+  // smooth coloring needs the growth rate per iteration: geometric mean of the slot degrees over one period
+  const degs = RT.sched.map(zDegree), d = Math.exp(degs.reduce((a, x) => a + Math.log(Math.max(x, 1)), 0) / degs.length);
+  RT.deg = degs.every(isFinite) && d > 1.01 ? d : 2;
+  updateTitle();
+  let built;
+  try { built = S.view === 1 ? build2D(asts) : build3D(asts); } catch (e) { $("exprMsg").textContent = e.message; return; }
+  V2.ref = null;
+  if (progCache.has(built.src)) { RT.pending = null; RT.prog = progCache.get(built.src); $("compileBadge").textContent = ""; invalidate(); return; }
+  const { p, f } = linkNow(built.src);
+  RT.pending = { p, f, built, t0: performance.now() };
+  $("compileBadge").textContent = "compiling…";
+  if (!parallelExt) pollCompile();
+}
+
+function pollCompile() {
+  const pd = RT.pending;
+  if (!pd) return;
+  if (parallelExt && !gl.getProgramParameter(pd.p, parallelExt.COMPLETION_STATUS_KHR)) return;
+  RT.pending = null;
+  $("compileBadge").textContent = "";
+  if (!gl.getProgramParameter(pd.p, gl.LINK_STATUS)) {
+    const log = gl.getShaderInfoLog(pd.f) || gl.getProgramInfoLog(pd.p);
+    gl.deleteProgram(pd.p); gl.deleteShader(pd.f);
+    markSlots(0, "Shader failed to compile:\n" + log);
+    return;
+  }
+  gl.deleteShader(pd.f);
+  RT.compileMs = performance.now() - pd.t0;
+  const pr = { p: pd.p, u: uniformsOf(pd.p), kind: pd.built.kind, pert: pd.built.pert };
+  progCache.set(pd.built.src, pr);
+  RT.prog = pr;
+  errBox.hidden = true;
+  invalidate();
+}
+
+// ---------------------------------------------------------------- geometry: camera, slice basis, cut plane
+const deg = Math.PI / 180;
+// sin/cos of an angle in degrees, exact at multiples of 90° (cos 90° in double is 6e-17, which would tilt
+// the cut plane by that much and move a deep 2D zoom thousands of screens away from where it should be)
+const sinD = (a) => { const q = ((a % 360) + 360) % 360; return q === 0 || q === 180 ? 0 : q === 90 ? 1 : q === 270 ? -1 : Math.sin(a * deg); };
+const cosD = (a) => sinD(a + 90);
+const norm3 = (v) => { const l = Math.hypot(...v) || 1; return v.map((x) => x / l); };
+const cross3 = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const camDir = () => { const cp = Math.cos(cam.pitch); return [cp * Math.sin(cam.yaw), Math.sin(cam.pitch), cp * Math.cos(cam.yaw)]; };
+function camFrame() {
+  const d = camDir();
+  const pos = cam.target.map((t, i) => t + cam.dist * d[i]);
+  const f = d.map((x) => -x);
+  const r = norm3(cross3(f, [0, 1, 0])), u = cross3(r, f);
+  return { pos, r, u, f, rot: new Float32Array([...r, ...u, ...d]) };
+}
+// Keeps the camera where it is and puts the orbit pivot `dist` ahead of it
+function setPivot(pos, dist) { cam.dist = dist; const d = camDir(); cam.target = pos.map((p, i) => p - dist * d[i]); }
+
+const AXN = ["1", "i", "j", "k"];
+// Orthonormal 4D frame: three visible axes plus the hidden one, each visible axis optionally tilted toward the hidden axis
+function sliceFrame(rotated) {
+  const unit = (a) => [0, 1, 2, 3].map((n) => (n === a ? 1 : 0));
+  const vis = [0, 1, 2, 3].filter((a) => a !== S.hidden);
+  const E = vis.map(unit);
+  let N = unit(S.hidden);
+  for (let m = 0; m < 3 && rotated; m++) {
+    const ca = cosD(S.rot[m]), sa = sinD(S.rot[m]), e = E[m];
+    E[m] = e.map((v, n) => ca * v + sa * N[n]);
+    N = e.map((v, n) => -sa * v + ca * N[n]);
+  }
+  return { E, N };
+}
+// With "rotate the cut plane" the 3D body keeps the plain slice and only the plane's 4D embedding turns
+const bodyFrame = () => sliceFrame(!(S.rotTarget === 0 && S.cut));
+const planeBasisFrame = () => sliceFrame(true);
+const frameMat = ({ E, N }) => new Float32Array([...E[0], ...E[1], ...E[2], ...N]);
+const to4 = ({ E, N }, p, w) => [0, 1, 2, 3].map((k) => E[0][k] * p[0] + E[1][k] * p[1] + E[2][k] * p[2] + N[k] * w);
+function axisName(v) {
+  const parts = v.map((x, n) => [x, n]).filter(([x]) => Math.abs(x) > 1e-3);
+  if (parts.length === 1) return (parts[0][0] < 0 ? "−" : "") + AXN[parts[0][1]];
+  return parts.map(([x, n], k) => `${x < 0 ? "−" : k ? "+" : ""}${Math.abs(x).toFixed(2)}${AXN[n] === "1" ? "" : AXN[n]}`).join("");
+}
+function cutNormal() {
+  const a = S.cutAz, e = S.cutEl;
+  return [cosD(e) * cosD(a), cosD(e) * sinD(a), sinD(e)];
+}
+// Plane coordinates: origin n·offset, in-plane axes a1, a2; for the default plane ⊥ z these are x and y
+function planeFrame() {
+  const n = cutNormal();
+  const a1 = [sinD(S.cutAz), -cosD(S.cutAz), 0], a2 = cross3(n, a1);
+  const B = planeBasisFrame();
+  return { n, a1, a2, O: to4(B, n.map((x) => x * S.cutD), S.w), A: to4(B, a1, 0), B: to4(B, a2, 0) };
+}
+const split64 = (x) => { const hi = Math.fround(x); return [hi, x - hi]; };
+
+// ---------------------------------------------------------------- CPU evaluation in double: distance from the camera to the surface
+const cx = {
+  mul: (a, b) => [a[0] * b[0] - a[1] * b[1], a[0] * b[1] + a[1] * b[0]],
+  inv: (a) => { const d = a[0] * a[0] + a[1] * a[1]; return [a[0] / d, -a[1] / d]; },
+  exp: (a) => { const e = Math.exp(a[0]); return [e * Math.cos(a[1]), e * Math.sin(a[1])]; },
+  log: (a) => [Math.log(Math.hypot(a[0], a[1])), Math.atan2(a[1], a[0])],
+  sin: (a) => [Math.sin(a[0]) * Math.cosh(a[1]), Math.cos(a[0]) * Math.sinh(a[1])],
+  cos: (a) => [Math.cos(a[0]) * Math.cosh(a[1]), -Math.sin(a[0]) * Math.sinh(a[1])],
+  sinh: (a) => [Math.sinh(a[0]) * Math.cos(a[1]), Math.cosh(a[0]) * Math.sin(a[1])],
+  cosh: (a) => [Math.cosh(a[0]) * Math.cos(a[1]), Math.sinh(a[0]) * Math.sin(a[1])],
+  sqrt: (a) => { const r = Math.hypot(a[0], a[1]); return [Math.sqrt(Math.max(0.5 * (r + a[0]), 0)), (a[1] < 0 ? -1 : 1) * Math.sqrt(Math.max(0.5 * (r - a[0]), 0))]; },
+  pow: (a, p) => { const r = Math.hypot(a[0], a[1]); if (!r) return [0, 0]; const t = Math.atan2(a[1], a[0]) * p, m = r ** p; return [m * Math.cos(t), m * Math.sin(t)]; },
+};
+cx.div = (a, b) => cx.mul(a, cx.inv(b));
+cx.atan = (a) => { const l1 = cx.log([1 + a[1], -a[0]]), l2 = cx.log([1 - a[1], a[0]]); return [-0.5 * (l1[1] - l2[1]), 0.5 * (l1[0] - l2[0])]; };
+const CFD = {
+  exp: [cx.exp, cx.exp], log: [cx.log, cx.inv], sqrt: [cx.sqrt, (w) => cx.mul([0.5, 0], cx.inv(cx.sqrt(w)))],
+  sin: [cx.sin, cx.cos], cos: [cx.cos, (w) => cx.sin(w).map((v) => -v)],
+  tan: [(w) => cx.div(cx.sin(w), cx.cos(w)), (w) => cx.inv(cx.mul(cx.cos(w), cx.cos(w)))],
+  sinh: [cx.sinh, cx.cosh], cosh: [cx.cosh, cx.sinh],
+  tanh: [(w) => cx.div(cx.sinh(w), cx.cosh(w)), (w) => cx.inv(cx.mul(cx.cosh(w), cx.cosh(w)))],
+  atan: [cx.atan, (w) => cx.inv([1 + w[0] * w[0] - w[1] * w[1], 2 * w[0] * w[1]])],
+};
+const toIN = (z) => [z[0] + z[3], z[1] - z[2], z[0] - z[3], z[1] + z[2]];
+const fromIN = (w) => [0.5 * (w[0] + w[2]), 0.5 * (w[1] + w[3]), 0.5 * (w[3] - w[1]), 0.5 * (w[0] - w[2])];
+const ALGS = [
+  {
+    mul: (a, b) => [a[0] * b[0] - a[1] * b[1] - a[2] * b[2] - a[3] * b[3], a[0] * b[1] + a[1] * b[0] + a[2] * b[3] - a[3] * b[2],
+      a[0] * b[2] - a[1] * b[3] + a[2] * b[0] + a[3] * b[1], a[0] * b[3] + a[1] * b[2] - a[2] * b[1] + a[3] * b[0]],
+    inv: (a) => { const d = a[0] ** 2 + a[1] ** 2 + a[2] ** 2 + a[3] ** 2; return [a[0] / d, -a[1] / d, -a[2] / d, -a[3] / d]; },
+    opn: (a) => Math.hypot(...a),
+    fn: ([F, D], a) => {
+      const r = Math.hypot(a[1], a[2], a[3]), u = r > 1e-300 ? [a[1] / r, a[2] / r, a[3] / r] : [1, 0, 0], w = [a[0], r];
+      const W = F(w), Dw = D(w), g = Math.hypot(...Dw);
+      return [[W[0], W[1] * u[0], W[1] * u[1], W[1] * u[2]], Math.max(g, r > 1e-6 ? Math.abs(W[1]) / r : g)];
+    },
+  },
+  {
+    mul: (a, b) => { const A = toIN(a), B = toIN(b); return fromIN([...cx.mul(A.slice(0, 2), B.slice(0, 2)), ...cx.mul(A.slice(2), B.slice(2))]); },
+    inv: (a) => { const A = toIN(a); return fromIN([...cx.inv(A.slice(0, 2)), ...cx.inv(A.slice(2))]); },
+    opn: (a) => { const A = toIN(a); return Math.max(Math.hypot(A[0], A[1]), Math.hypot(A[2], A[3])); },
+    fn: ([F, D], a) => {
+      const A = toIN(a), w1 = A.slice(0, 2), w2 = A.slice(2);
+      return [fromIN([...F(w1), ...F(w2)]), Math.max(Math.hypot(...D(w1)), Math.hypot(...D(w2)))];
+    },
+  },
+];
+const mulS = (a, b, A) => ({ v: A.mul(a.v, b.v), d: A.opn(a.v) * b.d + a.d * A.opn(b.v) });
+const invS = (a, A) => { const r = A.inv(a.v), k = A.opn(r); return { v: r, d: a.d * k * k }; };
+function evalS(n, z, c, A) {
+  switch (n.t) {
+    case "k": return { v: n.q, d: 0 };
+    case "p": return { v: [pVal(n.name), 0, 0, 0], d: 0 };
+    case "v": return n.n === "z" ? z : c;
+    case "neg": { const a = evalS(n.a, z, c, A); return { v: a.v.map((x) => -x), d: a.d }; }
+    case "fn": {
+      const a = evalS(n.a, z, c, A);
+      if (n.f === "abs") return { v: a.v.map(Math.abs), d: a.d };
+      if (n.f === "conj") return { v: [a.v[0], -a.v[1], -a.v[2], -a.v[3]], d: a.d };
+      if (n.f === "norm") return { v: [Math.hypot(...a.v), 0, 0, 0], d: a.d };
+      if (n.f === "re") return { v: [a.v[0], 0, 0, 0], d: a.d };
+      if (n.f === "boxfold") { const r = argNum(n.p[0]); return { v: a.v.map((x) => Math.min(Math.max(x, -r), r) * 2 - x), d: a.d }; }
+      if (n.f === "spherefold") {
+        const [mn, mx] = n.p.map(argNum), r2 = a.v.reduce((s, x) => s + x * x, 0);
+        const k = r2 < mn * mn ? (mx * mx) / (mn * mn) : r2 < mx * mx ? (mx * mx) / r2 : 1;
+        return { v: a.v.map((x) => x * k), d: a.d * k };
+      }
+      if (n.f === "bulb") { const m = argNum(n.p[0]); return { v: bulbN(a.v, m), d: a.d * m * Math.max(Math.hypot(...a.v), 1e-300) ** (m - 1) }; }
+      const [v, g] = A.fn(CFD[n.f], a.v);
+      return { v, d: a.d * g };
+    }
+  }
+  const a = evalS(n.a, z, c, A);
+  if (n.op === "^") {
+    if (realK(n.b) || n.b.t === "p") {
+      const p = n.b.t === "p" ? pVal(n.b.name) : n.b.q[0];
+      // a parameter exponent always goes through the polar form, as in the shader
+      if (n.b.t !== "p" && Number.isInteger(p)) {
+        let r = { v: [1, 0, 0, 0], d: 0 }, b = a;
+        for (let m = Math.abs(p); m > 0; m >>= 1) { if (m & 1) r = mulS(r, b, A); if (m > 1) b = mulS(b, b, A); }
+        return p < 0 ? invS(r, A) : r;
+      }
+      const [v, g] = A.fn([(w) => cx.pow(w, p), (w) => cx.pow(w, p - 1).map((x) => x * p)], a.v);
+      return { v, d: a.d * g };
+    }
+    const b = evalS(n.b, z, c, A), l = A.fn(CFD.log, a.v), e = mulS({ v: l[0], d: a.d * l[1] }, b, A), [v, g] = A.fn(CFD.exp, e.v);
+    return { v, d: e.d * g };
+  }
+  const b = evalS(n.b, z, c, A);
+  if (n.op === "+") return { v: a.v.map((x, k) => x + b.v[k]), d: a.d + b.d };
+  if (n.op === "-") return { v: a.v.map((x, k) => x - b.v[k]), d: a.d + b.d };
+  if (n.op === "*") return mulS(a, b, A);
+  return mulS(a, invS(b, A), A);
+}
+// Near the surface the region "not escaped after N iterations" is much fatter than the set itself,
+// so the iteration count grows with zoom depth (≈ 12 per decade of camera distance)
+// Angular size of a pixel of the final image. The preview uses it too: a coarser preview tolerance would
+// make thin parts appear and vanish as the adaptive preview resolution changes from frame to frame.
+const uPixFull = () => S.detail * 2 * TAN_HALF / Math.max(1, Math.round(canvas.height * S.scale));
+const iterPerDec = () => (S.iterAuto ? S.iterPerDec : 0);
+// Same rule as iterFor() in the shader, at the scale of the nearest surface
+// Scene scale: distance to the nearest surface, or the last one measured outside when the camera is inside a
+// solid (flying through walls). Using 0 there would push iterations to their cap and switch to double-float.
+const sceneDE = () => (RT.camDE > 0 ? RT.camDE : RT.lastDE);
+function updateIterEff() {
+  const eps = uPixFull() * Math.max(sceneDE(), 1e-300) * 0.5;
+  RT.iterEff = Math.min(S.iter + Math.floor(Math.max(0, iterPerDec() * (Math.log10(S.bound / eps) - 3))), 4000);
+}
+function bulbN(a, n) {
+  const r = Math.hypot(a[0], a[1], a[2]);
+  if (r < 1e-300) return [0, 0, 0, 0];
+  const th = Math.acos(Math.min(1, Math.max(-1, a[2] / r))) * n, ph = Math.atan2(a[1], a[0]) * n, rn = r ** n;
+  return [rn * Math.sin(th) * Math.cos(ph), rn * Math.sin(th) * Math.sin(ph), rn * Math.cos(th), a[3] * rn / r];
+}
+const linDE = () => S.deMode === 2 || (S.deMode === 0 && RT.hasFold);
+const camDE = () => deAt(camFrame().pos);
+// Same distance estimate the shader marches with, evaluated at a point of the 3D slice
+function deAt(p) {
+  if (!RT.sched) return 1;
+  const A = ALGS[S.alg], P = to4(bodyFrame(), p, S.w);
+  let z = S.julia ? { v: P, d: 1 } : { v: S.z0, d: 0 };
+  const c = S.julia ? { v: S.c, d: 0 } : { v: P, d: 1 };
+  let r2 = 0, esc = false;
+  for (let n = 0; n < RT.iterEff; n++) { z = evalS(RT.sched[n % RT.sched.length], z, c, A); r2 = z.v.reduce((s, x) => s + x * x, 0); if (!(r2 <= S.bail * S.bail)) { esc = true; break; } }
+  const r = Math.sqrt(r2);
+  let de = !esc ? 0 : isFinite(r2) && z.d > 0 ? (linDE() ? r : 0.5 * Math.log(r) * r) / z.d * S.fudge : 1e-3;
+  if (S.cut) de = Math.max(de, dot3(p, cutNormal()) - S.cutD);
+  return de;
+}
+
+// ---------------------------------------------------------------- arbitrary-precision reference orbit (fixed point BigInt / 2^P)
+function fixOps(P, alg) {
+  const Pn = BigInt(P), sc = 2 ** P;
+  const from = (x) => BigInt(Math.round(x * sc));
+  const num = (a) => Number(a) / sc;
+  const sh = (x) => x >> Pn;
+  const qmul = alg === 0
+    ? (a, b) => [sh(a[0] * b[0] - a[1] * b[1] - a[2] * b[2] - a[3] * b[3]), sh(a[0] * b[1] + a[1] * b[0] + a[2] * b[3] - a[3] * b[2]),
+      sh(a[0] * b[2] - a[1] * b[3] + a[2] * b[0] + a[3] * b[1]), sh(a[0] * b[3] + a[1] * b[2] - a[2] * b[1] + a[3] * b[0])]
+    : (a, b) => [sh(a[0] * b[0] - a[1] * b[1] - a[2] * b[2] + a[3] * b[3]), sh(a[0] * b[1] + a[1] * b[0] - a[2] * b[3] - a[3] * b[2]),
+      sh(a[0] * b[2] - a[1] * b[3] + a[2] * b[0] - a[3] * b[1]), sh(a[0] * b[3] + a[1] * b[2] + a[2] * b[1] + a[3] * b[0])];
+  const cinvB = (x, y) => { const d = sh(x * x + y * y); return [(x << Pn) / d, (-y << Pn) / d]; };
+  const qinv = alg === 0
+    ? (a) => { const d = sh(a[0] * a[0] + a[1] * a[1] + a[2] * a[2] + a[3] * a[3]); return [(a[0] << Pn) / d, (-a[1] << Pn) / d, (-a[2] << Pn) / d, (-a[3] << Pn) / d]; }
+    : (a) => {
+      const w1 = cinvB(a[0] + a[3], a[1] - a[2]), w2 = cinvB(a[0] - a[3], a[1] + a[2]);
+      return [(w1[0] + w2[0]) >> 1n, (w1[1] + w2[1]) >> 1n, (w2[1] - w1[1]) >> 1n, (w1[0] - w2[0]) >> 1n];
+    };
+  const isqrt = (n) => {
+    if (n <= 0n) return 0n;
+    let x = BigInt(Math.floor(Math.sqrt(Number(n))));
+    for (let k = 0; k < 4; k++) x = (x + n / x) >> 1n;
+    return x;
+  };
+  function ev(n, Z, C) {
+    switch (n.t) {
+      case "k": return n.q.map(from);
+      case "p": return [from(pVal(n.name)), 0n, 0n, 0n];
+      case "v": return n.n === "z" ? Z : C;
+      case "neg": return ev(n.a, Z, C).map((x) => -x);
+      case "fn": {
+        const a = ev(n.a, Z, C);
+        if (n.f === "abs") return a.map((x) => (x < 0n ? -x : x));
+        if (n.f === "conj") return [a[0], -a[1], -a[2], -a[3]];
+        if (n.f === "re") return [a[0], 0n, 0n, 0n];
+        return [isqrt(a.reduce((s, x) => s + x * x, 0n)), 0n, 0n, 0n];
+      }
+    }
+    const { op, a, b } = n;
+    if (op === "*" && realK(a)) { const k = from(a.q[0]); return ev(b, Z, C).map((x) => sh(x * k)); }
+    if ((op === "*" || op === "/") && realK(b)) { const k = from(op === "*" ? b.q[0] : 1 / b.q[0]); return ev(a, Z, C).map((x) => sh(x * k)); }
+    const A = ev(a, Z, C);
+    if (op === "^") {
+      const m = Math.abs(b.q[0]);
+      let r = [1n << Pn, 0n, 0n, 0n], p = A;
+      for (let k = m; k > 0; k >>= 1) { if (k & 1) r = qmul(r, p); if (k > 1) p = qmul(p, p); }
+      return b.q[0] < 0 ? qinv(r) : r;
+    }
+    const B = ev(b, Z, C);
+    if (op === "+") return A.map((x, k) => x + B[k]);
+    if (op === "-") return A.map((x, k) => x - B[k]);
+    if (op === "*") return qmul(A, B);
+    return qmul(A, qinv(B));
+  }
+  return { from, num, mul: (a, b) => sh(a * b), ev };
+}
+
+const refKey = () => JSON.stringify([S.slots, S.params, S.alg, S.julia, S.c, S.z0, S.cutAz, S.cutEl, S.cutD, S.w, S.hidden, S.rot, S.iter2D, S.bail]);
+function refOffset(r) {
+  const s = BigInt(V2.P - r.P), sc = 2 ** V2.P;
+  return [Number(V2.u - (r.u << s)) / sc, Number(V2.v - (r.v << s)) / sc];
+}
+function computeRef(pf, key) {
+  const t0 = performance.now(), F = fixOps(V2.P, S.alg);
+  const R = [0, 1, 2, 3].map((k) => F.from(pf.O[k]) + F.mul(F.from(pf.A[k]), V2.u) + F.mul(F.from(pf.B[k]), V2.v));
+  let Z = S.julia ? R : S.z0.map(F.from);
+  const C = S.julia ? S.c.map(F.from) : R, N = S.iter2D, B2 = S.bail * S.bail;
+  const buf = new Float32Array(Math.ceil((N + 2) / 1024) * 1024 * 4);
+  let len = 0;
+  for (;;) {
+    const zn = Z.map(F.num);
+    buf.set(zn, len * 4); len++;
+    if (!(zn.reduce((s, x) => s + x * x, 0) <= B2) || len > N) break;
+    Z = F.ev(RT.asts[0], Z, C);
+  }
+  const rows = Math.ceil(len / 1024);
+  gl.bindTexture(gl.TEXTURE_2D, orbitTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 1024, rows, 0, gl.RGBA, gl.FLOAT, buf.subarray(0, rows * 1024 * 4));
+  return { u: V2.u, v: V2.v, P: V2.P, len, key, cref: R.map(F.num), ms: performance.now() - t0 };
+}
+// The reference is reused while the view stays within a few screens of it and the precision suffices
+function ensureRef(pf) {
+  const r = V2.ref, key = refKey();
+  if (r && r.key === key && r.P >= V2.P) { const o = refOffset(r); if (Math.hypot(o[0], o[1]) < 3 * V2.scale * canvas.width / canvas.height) return r; }
+  return (V2.ref = computeRef(pf, key));
+}
+function v2Reset() { V2.u = 0n; V2.v = 0n; V2.P = 64; V2.scale = S.bound; V2.ref = null; }
+function v2SetScale(s) {
+  V2.scale = clamp(s, 1e-30, 60);
+  const need = Math.max(64, Math.ceil(-Math.log2(V2.scale)) + 64);
+  if (need > V2.P) { const d = BigInt(need - V2.P); V2.u <<= d; V2.v <<= d; V2.P = need; }
+}
+function v2Move(du, dv) { const sc = 2 ** V2.P; V2.u += BigInt(Math.round(du * sc)); V2.v += BigInt(Math.round(dv * sc)); }
+
+// ---------------------------------------------------------------- uniforms
+function setUniforms(pr, w, h, jit, lite) { (pr.kind === "2d" ? setUniforms2D : setUniforms3D)(pr, w, h, jit, lite); }
+// sRGB "#rrggbb" → linear RGB
+const hexLin = (h) => [1, 3, 5].map((i) => Math.pow(parseInt(h.slice(i, i + 2), 16) / 255, 2.2));
+// colour temperature (K) → RGB, after Tanner Helland's fit of blackbody colours
+function tempRGB(k) {
+  const t = k / 100;
+  const r = t <= 66 ? 255 : 329.698727446 * Math.pow(t - 60, -0.1332047592);
+  const g = t <= 66 ? 99.4708025861 * Math.log(t) - 161.1195681661 : 288.1221695283 * Math.pow(t - 60, -0.0755148492);
+  const b = t >= 66 ? 255 : t <= 19 ? 0 : 138.5177312231 * Math.log(t - 10) - 305.0447927307;
+  return [r, g, b].map((v) => Math.pow(clamp(v, 0, 255) / 255, 2.2));
+}
+const hueRGB = (h) => [0, 1 / 3, 2 / 3].map((o) => Math.pow(0.5 + 0.5 * Math.cos(2 * Math.PI * (h - o)), 2.2));
+
+function setCommon(u) {
+  const pv = new Float32Array(MAX_PARAMS);
+  (RT.paramNames || []).forEach((nm, i) => { pv[i] = pVal(nm); });
+  gl.uniform1fv(u.uParam, pv);
+  gl.uniform1i(u.uPalette, S.palette);
+  gl.uniform1f(u.uExposure, S.exposure);
+  gl.uniform1i(u.uTrapMode, S.trapMode);
+  gl.uniform4fv(u.uTrapPoint, S.trapP);
+  gl.uniform1f(u.uHue, S.hue);
+  gl.uniform1f(u.uB2, S.bail * S.bail);
+  gl.uniform1f(u.uLogBail, Math.log(S.bail));
+  gl.uniform1f(u.uDeg, RT.deg);
+  gl.uniform1f(u.uDens2D, S.dens2D);
+  gl.uniform1i(u.uIter2D, S.iter2D);
+  gl.uniform4fv(u.uC, S.c);
+  gl.uniform4fv(u.uZ0, S.z0);
+}
+function setUniforms3D(pr, w, h, jit, lite) {
+  const u = pr.u, f = camFrame(), n = cutNormal();
+  gl.useProgram(pr.p);
+  setCommon(u);
+  gl.uniform1f(u.uOne, 1);
+  gl.uniform2f(u.uRes, w, h);
+  gl.uniform2f(u.uJitter, jit[0], jit[1]);
+  const ps = f.pos.map(split64);
+  gl.uniform3f(u.uCamPos, ps[0][0], ps[1][0], ps[2][0]);
+  gl.uniform3f(u.uCamPosLo, ps[0][1], ps[1][1], ps[2][1]);
+  gl.uniformMatrix3fv(u.uCamRot, false, f.rot);
+  gl.uniform1f(u.uFov, TAN_HALF);
+  gl.uniformMatrix4fv(u.uBasis, false, frameMat(bodyFrame()));
+  gl.uniformMatrix4fv(u.uPlaneBasis, false, frameMat(planeBasisFrame()));
+  const ws = split64(S.w);
+  gl.uniform1f(u.uW, ws[0]); gl.uniform1f(u.uWLo, ws[1]);
+  gl.uniform1i(u.uIter, RT.iterEff);
+  gl.uniform1i(u.uSteps, S.steps);
+  gl.uniform1i(u.uShadowSteps, S.shadowSteps);
+  gl.uniform1i(u.uColorMode, S.colorMode);
+  gl.uniform1i(u.uLite, lite ? 1 : 0);
+  // Hit tolerance and iteration count both follow the pixel of the final image, also in the coarse preview.
+  // A preview-sized tolerance would turn every region where the distance estimate is merely small (it is a
+  // loose lower bound near folds) into solid walls that vanish in the final pass.
+  gl.uniform1f(u.uPix, uPixFull());
+  gl.uniform1f(u.uPixIter, uPixFull());
+  gl.uniform1f(u.uDepthScale, Math.max(sceneDE(), 1e-20));
+  gl.uniform1f(u.uIterPerDec, iterPerDec());
+  gl.uniform1f(u.uCamDE, Math.max(sceneDE(), 0));
+  gl.uniform1f(u.uFudge, S.fudge);
+  gl.uniform1f(u.uBound, S.bound);
+  gl.uniform4f(u.uPlane, ...n, S.cutD);
+  gl.uniform1f(u.uCamPlane, S.cutD - dot3(f.pos, n));
+  gl.uniform1f(u.uPlaneAlpha, S.cutOutside ? S.cutAlpha : 0);
+  gl.uniform1f(u.uColorScale, S.colorScale);
+  gl.uniform1i(u.uLinDE, linDE() ? 1 : 0);
+  gl.uniform1f(u.uGlow, S.glow);
+  gl.uniform1f(u.uFog, S.fog);
+  gl.uniform1f(u.uSceneScale, clamp(sceneDE() * 4, 1e-15, S.bound * 2));
+  gl.uniform1f(u.uAperture, S.aperture);
+  gl.uniform1f(u.uFocus, S.focus);
+  gl.uniform1f(u.uSeed, RT.seed);
+  // light is fixed relative to the camera so the object never turns its dark side to the viewer
+  const la = S.lightAz * deg, le = S.lightEl * deg, l = [Math.sin(la) * Math.cos(le), Math.sin(le), Math.cos(la) * Math.cos(le)];
+  const toWorld = (v) => norm3([0, 1, 2].map((k) => f.r[k] * v[0] + f.u[k] * v[1] - f.f[k] * v[2]));
+  gl.uniform3fv(u.uLight, toWorld(l));
+  // point lights live in the scene scale (distance to the nearest surface), so they look the same at any depth
+  const scale = RT.camDE > 0 ? RT.camDE : RT.lastDE;
+  let lp = [0, 0, 0];
+  if (S.lightMode === 1) lp = toWorld(l).map((x) => x * 0.35 * scale);   // headlamp, offset toward the light direction
+  else if (S.lightMode === 2) {
+    // lantern ahead, but never beyond the first surface in front of the camera
+    const d = Math.min(S.lampDist * scale, 0.8 * freePath(f.pos, f.f, S.lampDist * scale));
+    lp = f.f.map((x) => x * d);
+  }
+  gl.uniform1i(u.uLightMode, S.lightMode);
+  gl.uniform3fv(u.uLightPos, lp);
+  gl.uniform1f(u.uLightRange, S.lampRange * scale);
+  gl.uniform1f(u.uLampHalo, S.lightMode === 2 ? 0.6 : 0);
+  // fill light comes from the opposite side, a little from below and behind the object
+  gl.uniform3fv(u.uFillDir, toWorld([-l[0], -0.35, -0.6 * l[2]]));
+  gl.uniform3fv(u.uLightCol, tempRGB(S.lightTemp).map((x) => x * S.lightInt));
+  gl.uniform3fv(u.uFillCol, hueRGB(S.fillHue).map((x) => x * S.fillInt));
+  gl.uniform3fv(u.uSkyTop, hexLin(S.bgTop));
+  gl.uniform3fv(u.uSkyBot, hexLin(S.bgBot));
+  gl.uniform1f(u.uAmb, S.amb);
+  gl.uniform1f(u.uSpec, S.spec);
+  gl.uniform1f(u.uShine, S.shine);
+  gl.uniform1f(u.uShadowK, S.shadowK);
+  gl.uniform1f(u.uGlowHue, S.glowHue);
+}
+function setUniforms2D(pr, w, h, jit) {
+  const u = pr.u, pf = planeFrame();
+  gl.useProgram(pr.p);
+  setCommon(u);
+  let off = [0, 0], cref;
+  if (pr.pert) {
+    const ref = ensureRef(pf);
+    off = refOffset(ref); cref = ref.cref;
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, orbitTex);
+    gl.uniform1i(u.uOrbit, 2);
+    gl.uniform1i(u.uRefLen, ref.len);
+  } else {
+    const cu = Number(V2.u) / 2 ** V2.P, cv = Number(V2.v) / 2 ** V2.P;
+    cref = [0, 1, 2, 3].map((k) => pf.O[k] + cu * pf.A[k] + cv * pf.B[k]);
+  }
+  gl.uniform2f(u.uRes, w, h);
+  gl.uniform2f(u.uJitter, jit[0], jit[1]);
+  gl.uniform2f(u.uOffset, off[0], off[1]);
+  gl.uniform1f(u.uHalf, V2.scale);
+  gl.uniform4fv(u.uA, pf.A);
+  gl.uniform4fv(u.uB, pf.B);
+  gl.uniform4fv(u.uCref, cref);
+}
+
+// ---------------------------------------------------------------- progressive renderer
+const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
+// cameraOnly: the accumulated preview can be reprojected; anything else (formula, light, colour) starts it over
+function invalidate(cameraOnly) {
+  RT.phase = "preview"; RT.lastChange = performance.now();
+  if (!cameraOnly) RT.sceneVer++;
+  // the address bar follows the state, half a second after the last change
+  clearTimeout(RT.hashTimer);
+  RT.hashTimer = setTimeout(() => { writeHash(); }, 600);
+}
+function halton(i, b) { let f = 1, r = 0; while (i > 0) { f /= b; r += f * (i % b); i = Math.floor(i / b); } return r; }
+
+let dpr = 1;
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const w = Math.max(1, Math.round(canvas.clientWidth * dpr)), h = Math.max(1, Math.round(canvas.clientHeight * dpr));
+  if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; invalidate(); }
+}
+
+// Every draw must stay far below the OS GPU watchdog (~2 s on Windows), or the driver resets and the browser
+// disables WebGL for the page. So the preview size comes from the measured cost per pixel of this very shader,
+// and the first draw of a new shader is tiny, just to measure it.
+function renderPreview(pr) {
+  // preview size in steps of ×1.25 with hysteresis, so it does not wobble from frame to frame
+  const ideal = pr.msPerPx ? Math.sqrt(25 / (pr.msPerPx * canvas.width * canvas.height)) : 0.04;
+  if (!RT.psQ || ideal < RT.psQ / 1.4 || ideal > RT.psQ * 1.4) RT.psQ = 0.04 * Math.pow(1.25, Math.round(Math.log(Math.max(ideal, 0.04) / 0.04) / Math.log(1.25)));
+  RT.ps = clamp(RT.psQ, 0.04, S.previewMax);
+  const w = Math.max(1, Math.round(canvas.width * RT.ps)), h = Math.max(1, Math.round(canvas.height * RT.ps));
+  const taa = pr.kind === "3d";
+  const k = (RT.pframe++ % 16) + 1, jit = taa ? [halton(k, 2) - 0.5, halton(k, 3) - 0.5] : [0, 0];
+  const target = taa ? RT.cur : RT.prev;
+  sizeTarget(target, w, h);
+  setUniforms(pr, w, h, jit, true);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, target.fb);
+  gl.viewport(0, 0, w, h);
+  gl.disable(gl.SCISSOR_TEST); gl.disable(gl.BLEND);
+  const t0 = performance.now();
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  gpuSync();
+  const dt = performance.now() - t0;
+  RT.prevMs = dt;
+  if (taa) reproject(w, h);
+  // cost per pixel, smoothed and limited per step; the first draw of a program also pays the driver's lazy compile
+  const est = Math.max(dt, 0.3) / (w * h);
+  pr.msPerPx = pr.msPerPx ? 0.6 * clamp(est, pr.msPerPx / 4, pr.msPerPx * 8) + 0.4 * pr.msPerPx : est;
+  RT.msPerPx = pr.msPerPx;
+  if (!pr.warm) { pr.warm = true; invalidate(); }
+}
+
+function reproject(w, h) {
+  const f = camFrame(), H = RT.hist, out = RT.prev === RT.hA ? RT.hB : RT.hA;
+  const valid = !!H && H.ver === RT.sceneVer && H.prog === RT.prog;
+  sizeTarget(out, w, h);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, out.fb);
+  gl.viewport(0, 0, w, h);
+  gl.useProgram(reprojProg.p);
+  const u = reprojProg.u;
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, RT.cur.tex);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, valid ? H.target.tex : RT.cur.tex);
+  gl.uniform1i(u.uNew, 0); gl.uniform1i(u.uHist, 1);
+  gl.uniform2f(u.uSize, w, h);
+  gl.uniformMatrix3fv(u.uRotNew, false, f.rot);
+  gl.uniformMatrix3fv(u.uRotPrev, false, valid ? H.rot : f.rot);
+  gl.uniform3fv(u.uDelta, valid ? f.pos.map((x, i) => x - H.pos[i]) : [0, 0, 0]);
+  gl.uniform1f(u.uFov, TAN_HALF);
+  gl.uniform1f(u.uBlend, 0.2);
+  const scale = Math.max(sceneDE(), 1e-20);
+  gl.uniform1f(u.uScaleNew, scale);
+  gl.uniform1f(u.uScalePrev, valid ? H.scale : scale);
+  gl.uniform1i(u.uValid, valid ? 1 : 0);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  RT.prev = out;
+  RT.hist = { target: out, ver: RT.sceneVer, prog: RT.prog, pos: f.pos, rot: f.rot, scale };
+}
+
+function startFull(pr) {
+  const w = Math.max(1, Math.round(canvas.width * S.scale)), h = Math.max(1, Math.round(canvas.height * S.scale));
+  sizeTarget(RT.full, w, h);
+  RT.sample = 0; RT.row = 0; RT.col = 0; RT.jit = [0, 0]; RT.seed = 0; RT.phase = "full"; RT.fullStart = performance.now();
+  if (pr.msPerPx) RT.msPerPx = pr.msPerPx;
+}
+
+// Renders horizontal strips until the frame budget is used; later samples are jittered and averaged in
+function renderFull(pr) {
+  const T = RT.full, { w, h } = T, t0 = performance.now();
+  setUniforms(pr, w, h, RT.jit, false);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, T.fb);
+  gl.viewport(0, 0, w, h);
+  gl.enable(gl.SCISSOR_TEST);
+  while (RT.phase === "full") {
+    if (RT.sample > 0) {
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.CONSTANT_ALPHA, gl.ONE_MINUS_CONSTANT_ALPHA);
+      gl.blendColor(0, 0, 0, 1 / (RT.sample + 1));
+    } else gl.disable(gl.BLEND);
+    // whole rows while they fit the budget, otherwise small tiles along the current row
+    const area = Math.max(S.budget - (performance.now() - t0), 4) / RT.msPerPx;
+    let rx = RT.col, rw, rh;
+    if (rx === 0 && area >= w) { rw = w; rh = clamp(Math.floor(area / w), 1, h - RT.row); }
+    else { rh = Math.min(8, h - RT.row); rw = clamp(Math.floor(area / rh), 8, w - rx); }
+    gl.scissor(rx, RT.row, rw, rh);
+    const s0 = performance.now();
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gpuSync();
+    RT.msPerPx = clamp(0.5 * RT.msPerPx + 0.5 * Math.max(performance.now() - s0, 0.05) / (rw * rh), RT.msPerPx / 4, RT.msPerPx * 8);
+    if (rx + rw >= w) { RT.col = 0; RT.row += rh; } else RT.col = rx + rw;
+    if (RT.row >= h) {
+      RT.row = 0; RT.sample++;
+      if (RT.sample >= S.samples) { RT.phase = "done"; RT.doneMs = performance.now() - RT.fullStart; }
+      else {
+        RT.jit = [halton(RT.sample, 2) - 0.5, halton(RT.sample, 3) - 0.5]; RT.seed = halton(RT.sample, 5) * 97;
+        gl.uniform2f(pr.u.uJitter, RT.jit[0], RT.jit[1]); gl.uniform1f(pr.u.uSeed, RT.seed);
+      }
+    }
+    if (performance.now() - t0 > S.budget) break;
+  }
+  gl.disable(gl.SCISSOR_TEST); gl.disable(gl.BLEND);
+  RT.split = RT.sample === 0 && RT.phase === "full" ? RT.row / h : 2;
+}
+
+function present() {
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.useProgram(presentProg.p);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, RT.full.tex);
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, RT.prev.tex);
+  gl.uniform1i(presentProg.u.uFull, 0);
+  gl.uniform1i(presentProg.u.uPrev, 1);
+  gl.uniform2f(presentProg.u.uSize, canvas.width, canvas.height);
+  gl.uniform1f(presentProg.u.uSplit, RT.split);
+  gl.uniform1f(presentProg.u.uVignette, S.vignette);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+// Precision budget. A point of the scene is stored with relative error ~2⁻²⁴ in float and ~2⁻⁴⁸ in
+// double-float; several operations multiply that. The hit tolerance (pixel size × distance) must stay about
+// 100× above it, or the surface turns into view-dependent noise.
+const REL_FLOAT = 6e-6, REL_DF = 4e-13;
+function relTolerance(de, pos) {
+  const mag = Math.max(Math.hypot(...pos), 0.1 * S.bound);
+  return uPixFull() * Math.max(de, 0) / mag;
+}
+const precLimit = () => (S.prec !== 0 && dfOK ? REL_DF : REL_FLOAT);
+// Double-float only where float runs out: it costs several times more per iteration
+function updatePrecision() {
+  const rel = relTolerance(sceneDE(), camFrame().pos);
+  let want = S.prec === 1;
+  if (S.prec === 2) want = RT.useDF ? rel < 1.5 * REL_FLOAT : rel < REL_FLOAT;
+  want = want && dfOK;
+  if (want !== RT.useDF) { RT.useDF = want; requestCompile(); }
+}
+// Refuses camera moves that would go closer than the current precision can draw cleanly
+function precisionAllows(pos) {
+  const de = deAt(pos), lim = precLimit();
+  RT.precWarn = de > 0 && relTolerance(de, pos) < lim && de < RT.camDE;
+  return !RT.precWarn;
+}
+
+let lastTick = performance.now();
+function tick() {
+  requestAnimationFrame(tick);
+  const now = performance.now(), dt = Math.min(now - lastTick, 100) / 1000;
+  lastTick = now;
+  pollCompile();
+  if (S.view === 0 && RT.sched) {
+    updateIterEff();
+    RT.camDE = camDE();
+    if (RT.camDE > 0) RT.lastDE = RT.camDE;
+    updatePrecision();
+  }
+  if (keys.size) moveByKeys(dt);
+  updateHud();
+  const pr = RT.prog;
+  if (!pr) return;
+  resize();
+  if (RT.phase === "preview") { renderPreview(pr); RT.split = -1; present(); RT.phase = "wait"; readout(); return; }
+  if (RT.phase === "wait") {
+    if (ptrs.size || keys.size || performance.now() - RT.lastChange < 160) return;
+    startFull(pr);
+  }
+  if (RT.phase === "full") { renderFull(pr); present(); readout(); }
+}
+
+// ---------------------------------------------------------------- readout & gizmo
+const fmtE = (x) => (x >= 0.01 && x < 1e4 ? x.toPrecision(3) : x.toExponential(1));
+function readout() {
+  const fh = RT.full.h, est = RT.msPerPx * Math.round(canvas.width * S.scale) * Math.round(canvas.height * S.scale) / 1000;
+  let st;
+  if (RT.phase === "wait" || RT.phase === "preview") st = `preview <b>${Math.round(RT.ps * 100)}%</b> · ${RT.prevMs.toFixed(0)} ms`;
+  else if (RT.phase === "full" && RT.sample === 0) st = `rendering <span class="acc">${Math.round(100 * RT.row / fh)}%</span>`;
+  else if (RT.phase === "full") st = `antialiasing <b>${RT.sample}/${S.samples}</b>`;
+  else st = `done in <b>${(RT.doneMs / 1000).toFixed(1)} s</b>`;
+  let mode;
+  if (S.view === 0) mode = `to surface <b>${RT.camDE > 0 ? fmtE(RT.camDE) : "inside"}</b> · ${RT.iterEff} it. · precision <b>${RT.useDF ? "df64" : "float"}</b> · derivative <b>${derivJac() ? "Jacobian" : "scalar"}</b>` +
+    (S.noclip ? ` · <span class="acc">through walls</span>` : "") +
+    (RT.precWarn ? `<br><span class="acc">precision limit reached (${precLimit() === REL_DF ? "df64" : "float — switch precision to df64 or Auto"})</span>` : "");
+  else {
+    const r = V2.ref;
+    mode = `zoom <b>×${fmtE(S.bound / V2.scale)}</b> · ` + (RT.prog && RT.prog.pert
+      ? (r ? `reference orbit ${r.len} it. · ${r.ms.toFixed(0)} ms · ${V2.P} bits` : "")
+      : `<span class="acc">no perturbation: ${RT.pertWhy}</span>`);
+  }
+  $("status").innerHTML =
+    `<b>${RT.full.w}×${fh}</b> · ${st}<br>${mode}<br>` +
+    `one pass ≈ ${est < 1 ? (est * 1000).toFixed(0) + " ms" : est.toFixed(1) + " s"}` +
+    (RT.compileMs ? ` · shader ${RT.compileMs.toFixed(0)} ms` : "") +
+    (floatFB ? "" : " · 8-bit accumulation") +
+    `<br>GPU: <b>${gpuName.replace(/[<>&]/g, "")}</b>`;
+  drawGizmo();
+  updatePosField();
+  updateHud();
+}
+function drawGizmo() {
+  const g = $("gizmo");
+  g.style.display = S.view === 0 ? "" : "none";
+  if (S.view !== 0) return;
+  const f = camFrame(), { E } = bodyFrame();
+  const cols = ["var(--ax-x)", "var(--ax-y)", "var(--ax-z)"];
+  const items = [0, 1, 2].map((a) => ({ a, x: f.r[a], y: -f.u[a], z: f.f[a] })).sort((p, q) => q.z - p.z);
+  g.innerHTML = items.map(({ a, x, y }) => {
+    const n = axisName(E[a]), short = n.length > 3 ? AXN[E[a].map(Math.abs).indexOf(Math.max(...E[a].map(Math.abs)))] + "′" : n;
+    return `<line x1="0" y1="0" x2="${x * 20}" y2="${y * 20}" stroke="${cols[a]}" stroke-width="2" stroke-linecap="round"/>` +
+      `<text x="${x * 27}" y="${y * 27 + 4}" fill="${cols[a]}" text-anchor="middle">${short}</text>`;
+  }).join("");
+}
+
+// ---------------------------------------------------------------- UI builders
+const refreshers = [];
+function el(tag, cls, html) { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; }
+function after(o) { if (o.on) o.on(); o.recompile ? requestCompile() : invalidate(); }
+function labelRow(text, right) { const l = el("div", "label"); l.append(el("span", null, text)); if (right) l.append(right); return l; }
+
+function slider(host, o) {
+  const g = el("div", "group"), val = el("input", "vnum"), inp = el("input");
+  val.inputMode = "decimal"; val.setAttribute("aria-label", o.label + ": value");
+  inp.type = "range"; inp.setAttribute("aria-label", o.label);
+  const fmt = o.fmt || ((v) => String(+v.toFixed(4)));
+  if (o.log) { inp.min = 0; inp.max = 1000; inp.step = 1; } else { inp.min = o.min; inp.max = o.max; inp.step = o.step; }
+  const toPos = (v) => (o.log ? Math.round(1000 * Math.log(v / o.min) / Math.log(o.max / o.min)) : v);
+  const fromPos = (p) => { let v = o.log ? o.min * Math.pow(o.max / o.min, p / 1000) : +p; if (o.int) v = Math.round(v); return v; };
+  const refresh = () => { const v = o.get(); inp.value = toPos(v); val.value = fmt(v); };
+  inp.addEventListener("input", () => { o.set(fromPos(+inp.value)); val.value = fmt(o.get()); after(o); });
+  val.addEventListener("change", () => {
+    let v = parseFloat(val.value.replace(",", ".").replace(/[−–]/, "-"));
+    if (isFinite(v)) { if (o.int) v = Math.round(v); if (o.log) v = Math.max(v, 1e-9); o.set(v); after(o); }
+    refresh();
+  });
+  refresh(); refreshers.push(refresh);
+  g.append(labelRow(o.label, val), inp); host.append(g); return g;
+}
+function seg(host, o) {
+  const g = el("div", "group"), s = el("div", "seg" + (o.math ? " math" : ""));
+  const refresh = () => s.querySelectorAll("button").forEach((b) => b.classList.toggle("on", String(o.get()) === b.dataset.v));
+  for (const [v, text, title] of o.items) {
+    const b = el("button", null, text); b.type = "button"; b.dataset.v = v; if (title) b.title = title;
+    b.addEventListener("click", () => { o.set(v); refresh(); after(o); });
+    s.append(b);
+  }
+  if (o.label) g.append(labelRow(o.label));
+  g.append(s); refresh(); refreshers.push(refresh); host.append(g); return g;
+}
+function select(host, o) {
+  const g = el("div", "group"), s = el("select", "num");
+  s.setAttribute("aria-label", o.label);
+  for (const [v, text] of o.items) { const op = el("option", null, text); op.value = v; s.append(op); }
+  const refresh = () => { s.value = String(o.get()); };
+  s.addEventListener("change", () => { o.set(+s.value); after(o); });
+  g.append(labelRow(o.label), s); refresh(); refreshers.push(refresh); host.append(g); return g;
+}
+function check(host, o) {
+  const l = el("label", "check"), c = el("input");
+  c.type = "checkbox";
+  const refresh = () => { c.checked = !!o.get(); };
+  c.addEventListener("change", () => { o.set(c.checked ? 1 : 0); after(o); });
+  l.append(c, document.createTextNode(" " + o.label)); refresh(); refreshers.push(refresh); host.append(l); return l;
+}
+function colorIn(host, o) {
+  const g = el("div", "group"), c = el("input");
+  c.type = "color"; c.setAttribute("aria-label", o.label);
+  const refresh = () => { c.value = o.get(); };
+  c.addEventListener("input", () => { o.set(c.value); after(o); });
+  g.append(labelRow(o.label), c); refresh(); refreshers.push(refresh); host.append(g); return g;
+}
+function buttons(host, items) {
+  const b = el("div", "btns");
+  for (const [text, fn] of items) { const x = el("button", "btn", text); x.type = "button"; x.addEventListener("click", fn); b.append(x); }
+  host.append(b); return b;
+}
+const bind = (key, extra = {}) => ({ get: () => S[key], set: (v) => { S[key] = v; }, ...extra });
+const bindArr = (key, i, extra = {}) => ({ get: () => S[key][i], set: (v) => { S[key][i] = v; }, ...extra });
+const refreshAll = () => refreshers.forEach((r) => r());
+
+// ---------------------------------------------------------------- panel content
+const hostV = $("hostView");
+seg(hostV, bind("view", { label: "Show", recompile: true, on: updateViewUI, items: [[0, "3D fractal", "Ray marching through the 3D slice"], [1, "2D slice", "The cutting plane up close, deep zoom with perturbation theory"]] }));
+const view3dBox = el("div", "body"), view2dBox = el("div", "body");
+hostV.append(view3dBox, view2dBox);
+seg(view3dBox, bind("camMode", { label: "Mouse", items: [[0, "Orbit", "Left button orbits the camera around the point in front of it"], [1, "Look", "Left button turns the view, the camera stays in place"]] }));
+select(view3dBox, bind("prec", { label: "Precision", recompile: true, on: () => { RT.useDF = false; updatePrecision(); }, items: [[0, "float — fast, zoom to ~10⁴"], [1, "Double (df64) — slower, zoom to ~10¹²"], [2, "Auto: df64 close to the surface"]] }));
+if (!dfOK) view3dBox.append(el("div", "note warn", "Double precision failed the self-test on this GPU; float is used."));
+slider(hostV, bind("flySpeed", { label: "Key speed", min: 0.05, max: 20, log: true, fmt: (v) => v.toFixed(2) + "×" }));
+const noclipCheck = check(view3dBox, bind("noclip", { label: "Through walls (key N)", on: () => { RT.noclipScale = 0; updateHud(true); } }));
+const keysNote = el("div", "note");
+hostV.append(keysNote);
+
+// Camera position as one readable line: copy it to report a place, paste one to go there
+const posText = el("textarea", "num");
+posText.rows = 4; posText.spellcheck = false; posText.setAttribute("aria-label", "Camera position");
+const posMsg = el("div", "note");
+{ const g = el("div", "group"); g.append(labelRow("Camera position"), posText); hostV.append(g); }
+buttons(hostV, [["Copy position", () => copyPos()], ["Go", () => gotoPos()]]);
+hostV.append(posMsg);
+const n17 = (x) => String(+x.toPrecision(17));
+const wrapDeg = (r) => { const d = ((r / deg) % 360 + 540) % 360 - 180; return +d.toPrecision(12); };
+function posLine() {
+  if (S.view === 1) return `2D: u = ${fixToDec(V2.u, V2.P)}, v = ${fixToDec(V2.v, V2.P)}; scale: ${V2.scale.toPrecision(17)}`;
+  const p = camFrame().pos;
+  return `camera: ${p.map(n17).join(", ")}; yaw: ${wrapDeg(cam.yaw)}°; pitch: ${wrapDeg(cam.pitch)}°; pivot distance: ${n17(cam.dist)}`;
+}
+// refreshed with the status readout, but never while the field is being edited
+function updatePosField() { if (document.activeElement !== posText) posText.value = posLine(); }
+async function copyPos() {
+  const t = posLine();
+  posText.value = t;
+  try { await navigator.clipboard.writeText(t); posMsg.textContent = "Copied. For the formula and all settings use \"Copy scene\"."; }
+  catch (e) { posText.focus(); posText.select(); posMsg.textContent = "Clipboard unavailable: copy the selected text."; }
+}
+function gotoPos() {
+  const N = String.raw`(-?\d+(?:\.\d+)?(?:[eE][-+]?\d+)?)`, t = posText.value;
+  const m3 = new RegExp(String.raw`(?:camera|камера):\s*${N}\s*,\s*${N}\s*,\s*${N}\s*;\s*(?:yaw|рыскание):\s*${N}°?\s*;\s*(?:pitch|тангаж):\s*${N}°?\s*;\s*(?:pivot distance|до центра вращения):\s*${N}`, "i").exec(t);
+  const m2 = new RegExp(String.raw`u\s*=\s*${N}\s*,\s*v\s*=\s*${N}\s*;\s*(?:scale|масштаб):\s*${N}`, "i").exec(t);
+  if (m3) {
+    if (S.view !== 0) { S.view = 0; refreshAll(); updateViewUI(); requestCompile(); }
+    cam.yaw = +m3[4] * deg; cam.pitch = clamp(+m3[5] * deg, -1.55, 1.55);
+    setPivot([+m3[1], +m3[2], +m3[3]], clamp(+m3[6], 1e-15, 60));
+  } else if (m2) {
+    if (S.view !== 1) { S.view = 1; refreshAll(); updateViewUI(); requestCompile(); }
+    v2Reset(); v2SetScale(+m2[3]);
+    V2.u = decToFix(m2[1], V2.P); V2.v = decToFix(m2[2], V2.P);
+  } else { posMsg.textContent = "Unrecognized format. Expected \"camera: x, y, z; yaw: …°; pitch: …°; pivot distance: …\" or \"2D: u = …, v = …; scale: …\"."; return; }
+  posMsg.textContent = "Moved.";
+  posText.blur();
+  invalidate();
+}
+buttons(view2dBox, [["Reset 2D view", () => { v2Reset(); invalidate(); }]]);
+function updateViewUI() {
+  view3dBox.hidden = S.view !== 0; view2dBox.hidden = S.view !== 1;
+  cutBody.hidden = !S.cut && S.view === 0;   // the 2D view always needs the plane controls
+  keysNote.innerHTML = S.view === 0
+    ? "<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> fly, <kbd>E</kbd>/<kbd>Q</kbd> up/down, <kbd>Shift</kbd> ×4. Speed follows the free path ahead: fast in a tunnel, slow near a wall, no crashing into it. <kbd>N</kbd> flies through walls at a constant speed for the current scale."
+    : "<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> pan, <kbd>E</kbd>/<kbd>Q</kbd> zoom in/out, <kbd>Shift</kbd> ×4. Speed is measured in screens, so it is the same at any depth.";
+  $("hint").innerHTML = S.view === 0
+    ? "Drag to orbit (or look), right button or Shift to pan, wheel to move toward the point in front of the camera. While the camera moves the frame is drawn at low resolution and accumulated over time; once it stops, the full frame is rendered in strips and antialiased."
+    : "Drag to pan, wheel to zoom at the cursor. The plane and its 4D tilt are set in the Slice and Cutting plane sections. The depth limit is about 10³⁰ (the float range of the deviations).";
+}
+
+const hostF = $("hostFormula");
+seg(hostF, bind("alg", { label: "Algebra", recompile: true, on: updateTitle, items: [[0, "Quaternions", "i² = j² = k² = ijk = −1, non-commutative"], [1, "Bicomplex", "i² = j² = −1, ij = ji = k, k² = +1, commutative"]] }));
+seg(hostF, bind("julia", { label: "A point in space sets", recompile: true, on: () => { updateTitle(); updateVecGroups(); }, items: [[0, "c — Mandelbrot"], [1, "z₀ — Julia"]] }));
+const cGroup = el("div", "body"), zGroup = el("div", "body");
+cGroup.append(el("div", "note", "Julia set parameter <b>c</b>")); zGroup.append(el("div", "note", "Starting point <b>z₀</b> (critical point of the formula)"));
+AXN.forEach((n, i) => slider(cGroup, bindArr("c", i, { label: `c · ${n}`, min: -1.5, max: 1.5, step: 0.001 })));
+AXN.forEach((n, i) => slider(zGroup, bindArr("z0", i, { label: `z₀ · ${n}`, min: -1.5, max: 1.5, step: 0.001 })));
+hostF.append(cGroup, zGroup);
+function updateVecGroups() { cGroup.hidden = !S.julia; zGroup.hidden = !!S.julia; }
+
+const hostSl = $("hostSlice");
+seg(hostSl, bind("hidden", { label: "Hidden (fixed) axis", math: true, on: () => { S.rot = [0, 0, 0]; refreshAll(); updateAxes(); }, items: AXN.map((n, i) => [i, n]) }));
+slider(hostSl, bind("w", { label: "Hidden axis value", min: -1.5, max: 1.5, step: 0.001 }));
+seg(hostSl, bind("rotTarget", { label: "4D rotation applies to", on: updateAxes, items: [[0, "cutting plane", "The 3D body stays; only the cutting plane and its 2D picture tilt in 4D"], [1, "whole 3D slice", "The 3D slice of the fractal itself changes"]] }));
+["x", "y", "z"].forEach((a, m) => slider(hostSl, bindArr("rot", m, { label: `Rotate ${a} → hidden, °`, min: -180, max: 180, step: 0.5, fmt: (v) => v.toFixed(1), on: updateAxes })));
+const axesNote = el("div", "note");
+hostSl.append(axesNote);
+function updateAxes() {
+  const b = bodyFrame(), p = planeBasisFrame();
+  let s = `Body: x = <b>${axisName(b.E[0])}</b>, y = <b>${axisName(b.E[1])}</b>, z = <b>${axisName(b.E[2])}</b>; hidden = <b>${axisName(b.N)}</b>`;
+  if (S.rotTarget === 0 && S.cut && S.rot.some((r) => r)) s += `<br>Cutting plane: x = <b>${axisName(p.E[0])}</b>, y = <b>${axisName(p.E[1])}</b>, z = <b>${axisName(p.E[2])}</b>`;
+  else if (S.rotTarget === 0 && !S.cut && S.rot.some((r) => r)) s += "<br>The cut is off, so the rotation applies to the whole slice.";
+  axesNote.innerHTML = s;
+}
+
+const hostC = $("hostCut");
+check(hostC, bind("cut", { label: "Cut the fractal with a plane", recompile: true, on: () => { cutBody.hidden = !S.cut && S.view === 0; updateAxes(); } }));
+const cutBody = el("div", "body"); hostC.append(cutBody);
+const setCut = (az, el_) => () => { S.cutAz = az; S.cutEl = el_; refreshAll(); invalidate(); };
+cutBody.append(labelRow("Plane perpendicular to"));
+buttons(cutBody, [["x axis", setCut(0, 0)], ["y axis", setCut(90, 0)], ["z axis", setCut(90, 90)]]);
+slider(cutBody, bind("cutAz", { label: "Normal azimuth, °", min: -180, max: 180, step: 0.5, fmt: (v) => v.toFixed(1) }));
+slider(cutBody, bind("cutEl", { label: "Normal elevation, °", min: -90, max: 90, step: 0.5, fmt: (v) => v.toFixed(1) }));
+slider(cutBody, bind("cutD", { label: "Plane offset", min: -2, max: 2, step: 0.001 }));
+buttons(cutBody, [["Remove the other half", () => { S.cutAz = ((S.cutAz + 360) % 360) - 180; S.cutEl = -S.cutEl; S.cutD = -S.cutD; refreshAll(); invalidate(); }]]);
+check(cutBody, bind("cutOutside", { label: "2D picture around the set" }));
+slider(cutBody, bind("cutAlpha", { label: "2D picture opacity", min: 0, max: 1, step: 0.01 }));
+slider(cutBody, bind("iter2D", { label: "2D slice iterations", min: 10, max: 50000, log: true, int: true }));
+slider(cutBody, bind("dens2D", { label: "2D color density", min: 0.0005, max: 0.5, log: true, fmt: (v) => v.toFixed(4) }));
+cutBody.append(el("div", "note", "The section is drawn by iterating the formula directly at every point of the plane, so it stays sharp at any iteration count. The Mandelbrot set cut by the plane ⊥ z at zero gives the classic 2D set. The ring at the edge of the disc shows how the plane is tilted."));
+
+const hostQ = $("hostQuality");
+select(hostQ, bind("deMode", { label: "Distance estimate", items: [[0, "Auto (linear if there are folds)"], [1, "Potential: 0.5·r·ln r / |dr| (polynomials)"], [2, "Linear: r / |dr| (Mandelbox, KIFS)"]] }));
+seg(hostQ, bind("deriv", { label: "Derivative", recompile: true, items: [[2, "Auto", "Scalar if the formula has folds, abs, bulb or norm; Jacobian otherwise"], [0, "Jacobian", "Exact gradient of the potential: best for smooth quaternion and bicomplex formulas"], [1, "Scalar", "Conservative upper bound of |dz|: reliable for folds, abs and the Mandelbulb"]] }));
+slider(hostQ, bind("iter", { label: "Formula iterations (3D)", min: 1, max: 200, log: true, int: true }));
+check(hostQ, bind("iterAuto", { label: "Add iterations with zoom depth" }));
+slider(hostQ, bind("iterPerDec", { label: "Iterations per decade of zoom", min: 1, max: 30, step: 0.5, fmt: (v) => v.toFixed(1) }));
+slider(hostQ, bind("bail", { label: "Escape radius", min: 2, max: 1000, log: true, fmt: (v) => v.toFixed(1) }));
+slider(hostQ, bind("steps", { label: "Ray-march steps", min: 16, max: 4000, log: true, int: true }));
+slider(hostQ, bind("detail", { label: "Hit threshold, px", min: 0.1, max: 10, log: true, fmt: (v) => v.toFixed(2) }));
+slider(hostQ, bind("fudge", { label: "Step fraction (DE safety)", min: 0.1, max: 1, step: 0.01 }));
+slider(hostQ, bind("bound", { label: "Bounding sphere radius", min: 0.5, max: 8, step: 0.01 }));
+slider(hostQ, bind("scale", { label: "Render scale", min: 0.25, max: 2, step: 0.05, fmt: (v) => v.toFixed(2) + "×" }));
+slider(hostQ, bind("previewMax", { label: "Max preview scale", min: 0.1, max: 1, step: 0.05, fmt: (v) => v.toFixed(2) + "×" }));
+slider(hostQ, bind("samples", { label: "Antialiasing samples", min: 1, max: 256, log: true, int: true }));
+slider(hostQ, bind("budget", { label: "Frame budget, ms", min: 8, max: 250, log: true, int: true }));
+select(hostQ, bind("shadows", { label: "Shadows", recompile: true, items: [[0, "None"], [1, "Soft (march toward the light)"]] }));
+slider(hostQ, bind("shadowSteps", { label: "Shadow steps", min: 8, max: 256, log: true, int: true }));
+select(hostQ, bind("ao", { label: "Ambient occlusion (AO)", recompile: true, items: [[0, "None"], [1, "From the step count (free)"], [2, "Sampled, 5 estimates"]] }));
+hostQ.append(el("div", "note", "Finer detail needs more iterations; otherwise the region \"not escaped after N iterations\" is thicker than a pixel and the surface looks bloated. Auto iterations are computed for every point along the ray from the pixel size at its distance, so the surface does not change while the camera moves. Algebra, formula, mode, derivative, precision, cut, shadows and AO are compiled into the shader; changing them recompiles it."));
+
+const hostL = $("hostLook");
+select(hostL, bind("colorMode", { label: "Surface coloring", items: [[0, "Orbit trap"], [1, "Iteration count"], [2, "Normal"], [3, "Clay"]] }));
+select(hostL, bind("palette", { label: "Palette", items: [[0, "Amber"], [1, "Spectrum"], [2, "Ice"], [3, "Coral"], [4, "Moss"]] }));
+slider(hostL, bind("hue", { label: "Palette shift", min: 0, max: 1, step: 0.005 }));
+slider(hostL, bind("colorScale", { label: "Color frequency", min: 0.1, max: 8, log: true, fmt: (v) => v.toFixed(2) }));
+select(hostL, bind("trapMode", { label: "Orbit trap", on: () => { trapBox.hidden = S.trapMode !== 1; }, items: [[0, "Origin"], [1, "Point"], [2, "Coordinate planes"], [3, "Coordinate axes"]] }));
+const trapBox = el("div", "body"); trapBox.hidden = true; hostL.append(trapBox);
+AXN.forEach((n, i) => slider(trapBox, bindArr("trapP", i, { label: `Trap point · ${n}`, min: -2, max: 2, step: 0.001 })));
+slider(hostL, bind("glow", { label: "Volumetric glow", min: 0, max: 5, step: 0.01 }));
+slider(hostL, bind("glowHue", { label: "Glow hue (palette shift)", min: 0, max: 1, step: 0.005 }));
+slider(hostL, bind("fog", { label: "Fog", min: 0, max: 3, step: 0.01 }));
+slider(hostL, bind("aperture", { label: "Aperture (depth of field)", min: 0, max: 0.1, step: 0.0005, fmt: (v) => v.toFixed(4) }));
+slider(hostL, bind("focus", { label: "Focus distance", min: 1e-12, max: 60, log: true, fmt: fmtE }));
+buttons(hostL, [["Focus on screen center", () => focusCenter()]]);
+hostL.append(el("div", "note", "Depth of field and glow build up over the antialiasing samples, so they need 32 samples or more. Depth of field is off in the preview while moving."));
+const lightModeGroup = select(hostL, bind("lightMode", { label: "Key light", on: () => { lampBox.hidden = S.lightMode === 0; lampDistRow.hidden = S.lightMode !== 2; }, items: [[0, "Directional (turns with the camera)"], [1, "Headlamp (point light at the camera)"], [2, "Lantern (point light ahead of the camera)"]] }));
+const lampBox = el("div", "body"); lampBox.hidden = true; hostL.append(lampBox);
+slider(lampBox, bind("lampRange", { label: "Lamp range, × distance to surface", min: 0.3, max: 50, log: true, fmt: (v) => v.toFixed(1) }));
+const lampDistRow = slider(lampBox, bind("lampDist", { label: "Lantern distance, × distance to surface", min: 0.2, max: 20, log: true, fmt: (v) => v.toFixed(2) }));
+lampDistRow.hidden = true;
+lampBox.append(el("div", "note", "Point lights are measured in the current scene scale, so they behave the same outside the fractal and deep inside a cave. The headlamp sits next to the camera, shifted toward the light azimuth/elevation so shadows stay visible. The lantern hangs ahead of the camera and stops in front of the first wall."));
+slider(hostL, bind("lightAz", { label: "Light azimuth, °", min: -180, max: 180, step: 1 }));
+slider(hostL, bind("lightEl", { label: "Light elevation, °", min: -89, max: 89, step: 1 }));
+const lightIntGroup = slider(hostL, bind("lightInt", { label: "Light intensity", min: 0, max: 4, step: 0.01 }));
+slider(hostL, bind("lightTemp", { label: "Light temperature, K", min: 1800, max: 12000, step: 50, fmt: (v) => v.toFixed(0) }));
+slider(hostL, bind("fillInt", { label: "Fill light intensity", min: 0, max: 2, step: 0.01 }));
+slider(hostL, bind("fillHue", { label: "Fill light hue", min: 0, max: 1, step: 0.005 }));
+slider(hostL, bind("amb", { label: "Ambient light", min: 0, max: 1, step: 0.005 }));
+slider(hostL, bind("spec", { label: "Specular intensity", min: 0, max: 2, step: 0.01 }));
+slider(hostL, bind("shine", { label: "Specular gloss", min: 2, max: 400, log: true, fmt: (v) => v.toFixed(0) }));
+slider(hostL, bind("shadowK", { label: "Shadow hardness", min: 1, max: 64, log: true, fmt: (v) => v.toFixed(1) }));
+colorIn(hostL, bind("bgTop", { label: "Background: top" }));
+colorIn(hostL, bind("bgBot", { label: "Background: bottom" }));
+slider(hostL, bind("exposure", { label: "Exposure", min: 0.2, max: 4, log: true, fmt: (v) => v.toFixed(2) }));
+slider(hostL, bind("vignette", { label: "Vignette", min: 0, max: 1.5, step: 0.01 }));
+
+// ---------------------------------------------------------------- formula input, presets, title
+// One slider per formula parameter; the range is centred on the value it had when the formula was compiled
+let paramKey = "";
+function renderParams() {
+  const host = $("paramHost"), key = RT.paramNames.join(",");
+  host.hidden = !RT.paramNames.length;
+  if (key === paramKey) { refreshAll(); return; }
+  paramKey = key;
+  host.innerHTML = "";
+  host.append(labelRow("Parameters"));
+  for (const nm of RT.paramNames) {
+    const v = pVal(nm), span = Math.max(2, Math.abs(v) * 2);
+    slider(host, { label: nm, min: +(v - span).toFixed(2), max: +(v + span).toFixed(2), step: 0.001,
+      get: () => pVal(nm), set: (x) => { S.params[nm] = x; } });
+  }
+}
+
+const presetSel = $("preset");
+let exprTimer = 0;
+function renderSlots() {
+  const host = $("slots");
+  host.innerHTML = "";
+  S.slots.forEach((sl, i) => {
+    const row = el("div", "slot"), inp = el("input", "num expr");
+    inp.value = sl.f; inp.spellcheck = false; inp.autocomplete = "off"; inp.setAttribute("autocapitalize", "off");
+    inp.setAttribute("aria-label", `Formula ${i + 1}`); inp.setAttribute("aria-describedby", "exprMsg");
+    inp.addEventListener("input", () => {
+      clearTimeout(exprTimer);
+      exprTimer = setTimeout(() => { sl.f = inp.value; presetSel.value = ""; requestCompile(); }, 450);
+    });
+    inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { clearTimeout(exprTimer); sl.f = inp.value; requestCompile(); } });
+    row.append(inp);
+    if (S.slots.length > 1) {
+      const rep = el("input", "num rep"), del = el("button", "iconbtn", "✕");
+      rep.type = "number"; rep.min = 1; rep.max = 99; rep.value = sl.n;
+      rep.title = "Iterations in a row"; rep.setAttribute("aria-label", `Repeats of formula ${i + 1}`);
+      rep.addEventListener("change", () => { sl.n = clamp(Math.round(+rep.value) || 1, 1, 99); rep.value = sl.n; presetSel.value = ""; requestCompile(); });
+      del.type = "button"; del.title = "Remove from hybrid"; del.setAttribute("aria-label", `Remove formula ${i + 1}`);
+      del.addEventListener("click", () => { S.slots.splice(i, 1); presetSel.value = ""; renderSlots(); requestCompile(); });
+      row.append(el("span", "x", "×"), rep, del);
+    }
+    host.append(row);
+  });
+}
+$("addSlot").addEventListener("click", () => {
+  S.slots.push({ f: "2 spherefold(boxfold(z, 1), 0.5, 1) + c", n: 1 });
+  presetSel.value = ""; renderSlots(); requestCompile();
+});
+presetSel.append(Object.assign(el("option", null, "— presets —"), { value: "" }));
+PRESETS.forEach((p, i) => presetSel.append(Object.assign(el("option", null, p.name), { value: String(i) })));
+presetSel.addEventListener("change", () => { if (presetSel.value !== "") applyPreset(PRESETS[+presetSel.value]); });
+
+function applyPreset(p) {
+  S.slots = p.slots ? p.slots.map((sl) => ({ ...sl })) : [{ f: p.f, n: 1 }];
+  S.params = { ...(p.params || {}) }; paramKey = "";
+  S.alg = p.alg; S.julia = p.julia; S.bound = p.bound;
+  if (p.iter) S.iter = p.iter;
+  if (p.c) S.c = [...p.c];
+  if (p.z0) S.z0 = [...p.z0];
+  S.hidden = 3; S.w = 0; S.rot = [0, 0, 0]; S.cutD = 0;
+  S.bail = p.bail || 16;
+  // abs() folds make the distance estimate overshoot thin blades; such presets carry a smaller step
+  S.fudge = p.fudge || 0.9;
+  cam.target = p.cam.slice(0, 3); cam.dist = p.cam[3]; cam.yaw = 0.55; cam.pitch = 0.42;
+  camHome = { target: [...cam.target], dist: cam.dist };
+  v2Reset();
+  S.focus = cam.dist;
+  renderSlots();
+  refreshAll(); updateVecGroups(); updateAxes(); cutBody.hidden = !S.cut && S.view === 0;
+  requestCompile();
+}
+
+const SUP = { "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹", "-": "⁻", ".": "·" };
+function updateTitle() {
+  const pretty = (f) => f.replace(/\^(-?[\d.]+)/g, (_, d) => [...d].map((ch) => SUP[ch] || ch).join("")).replace(/\*/g, "·").replace(/-/g, "−");
+  $("title").textContent = "z ↦ " + S.slots.map((sl) => pretty(sl.f) + (S.slots.length > 1 ? ` ×${sl.n}` : "")).join("  →  ");
+  $("desc").textContent = (S.alg === 0
+    ? "Quaternions: i² = j² = k² = ijk = −1, multiplication is non-commutative."
+    : "Bicomplex numbers: i² = j² = −1, ij = ji = k, k² = +1; commutative, with zero divisors.") +
+    (S.julia ? " Julia set: a point sets z₀." : " Mandelbrot set: a point sets c.") +
+    (S.view === 0 ? " Showing a 3D slice of the 4D set." : " Showing the cutting plane.");
+}
+
+// ---------------------------------------------------------------- camera input: mouse
+const ptrs = new Map();
+let panMode = false;
+const pxScale2D = () => 2 * V2.scale / canvas.clientHeight;   // plane units per CSS pixel in the 2D view
+canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+canvas.addEventListener("pointerdown", (e) => {
+  if (tour.on) stopTour();
+  canvas.focus();
+  canvas.setPointerCapture(e.pointerId);
+  ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  panMode = e.button === 2 || e.button === 1 || e.shiftKey;
+  canvas.classList.add("dragging");
+});
+canvas.addEventListener("pointermove", (e) => {
+  const pr = ptrs.get(e.pointerId);
+  if (!pr) return;
+  const dx = e.clientX - pr.x, dy = e.clientY - pr.y;
+  if (ptrs.size === 2) {
+    const other = [...ptrs.entries()].find(([id]) => id !== e.pointerId)[1];
+    const d0 = Math.hypot(pr.x - other.x, pr.y - other.y), d1 = Math.hypot(e.clientX - other.x, e.clientY - other.y);
+    if (d0 > 0 && d1 > 0) { if (S.view === 1) v2SetScale(V2.scale * d0 / d1); else cam.dist = clamp(cam.dist * d0 / d1, 1e-15, 60); }
+  } else if (S.view === 1) {
+    const k = pxScale2D();
+    v2Move(-dx * k, dy * k);
+  } else if (panMode) {
+    const f = camFrame(), k = cam.dist * 0.0013;
+    cam.target = cam.target.map((t, n) => t - f.r[n] * dx * k + f.u[n] * dy * k);
+  } else if (S.camMode === 1) {
+    const pos = camFrame().pos;
+    cam.yaw -= dx * 0.004;
+    cam.pitch = clamp(cam.pitch + dy * 0.004, -1.55, 1.55);
+    setPivot(pos, cam.dist);
+  } else {
+    cam.yaw -= dx * 0.006;
+    cam.pitch = clamp(cam.pitch + dy * 0.006, -1.55, 1.55);
+  }
+  pr.x = e.clientX; pr.y = e.clientY;
+  invalidate(true);
+});
+const endPtr = (e) => { ptrs.delete(e.pointerId); if (!ptrs.size) canvas.classList.remove("dragging"); };
+canvas.addEventListener("pointerup", endPtr);
+canvas.addEventListener("pointercancel", endPtr);
+canvas.addEventListener("wheel", (e) => {
+  e.preventDefault();
+  if (tour.on) stopTour();
+  const f = Math.exp(e.deltaY * (e.deltaMode ? 0.05 : 0.0012));
+  if (S.view === 1) {
+    // zoom about the cursor: the plane point under it stays put
+    const r = canvas.getBoundingClientRect(), k = pxScale2D();
+    const ux = (e.clientX - r.left - r.width / 2) * k, uy = -(e.clientY - r.top - r.height / 2) * k;
+    const s0 = V2.scale;
+    v2SetScale(s0 * f);
+    const g = 1 - V2.scale / s0;
+    v2Move(ux * g, uy * g);
+  } else {
+    const d0 = cam.dist;
+    cam.dist = clamp(cam.dist * f, 1e-15, 60);
+    if (f < 1 && !precisionAllows(camFrame().pos)) cam.dist = d0;
+  }
+  invalidate(true);
+}, { passive: false });
+
+// ---------------------------------------------------------------- camera input: keyboard
+const keys = new Set();
+const MOVE_KEYS = new Set(["KeyW", "KeyA", "KeyS", "KeyD", "KeyQ", "KeyE"]);
+window.addEventListener("keydown", (e) => {
+  if (tour.on && e.isTrusted) { stopTour(); if (e.code === "Escape") return; }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.target.closest && e.target.closest("input, select, textarea")) return;
+  if (e.key === "?" && !e.repeat) { openAbout(); e.preventDefault(); return; }
+  if (e.code === "KeyH" && !e.repeat) { setUiHidden(!document.body.classList.contains("ui-hidden")); e.preventDefault(); return; }
+  if (e.code === "KeyN" && !e.repeat && S.view === 0) { S.noclip = S.noclip ? 0 : 1; RT.noclipScale = 0; refreshAll(); updateHud(true); e.preventDefault(); return; }
+  if (MOVE_KEYS.has(e.code) || e.code.startsWith("Shift")) {
+    keys.add(e.code);
+    if (MOVE_KEYS.has(e.code)) e.preventDefault();
+  }
+});
+window.addEventListener("keyup", (e) => { keys.delete(e.code); if (!keys.size) RT.lastChange = performance.now(); });
+window.addEventListener("blur", () => keys.clear());
+
+function moveByKeys(dt) {
+  const k = (c) => (keys.has(c) ? 1 : 0);
+  const fw = k("KeyW") - k("KeyS"), rt = k("KeyD") - k("KeyA"), up = k("KeyE") - k("KeyQ");
+  if (!fw && !rt && !up) return;
+  const boost = keys.has("ShiftLeft") || keys.has("ShiftRight") ? 4 : 1;
+  if (S.view === 1) {
+    const step = V2.scale * S.flySpeed * boost * dt;
+    v2Move(rt * step, fw * step);
+    if (up) v2SetScale(V2.scale * Math.exp(-up * 1.2 * S.flySpeed * boost * dt));
+    invalidate();
+    return;
+  }
+  const f = camFrame(), raw = [0, 1, 2].map((n) => f.f[n] * fw + f.r[n] * rt + f.u[n] * up), len = Math.hypot(...raw);
+  const dir = raw.map((x) => x / len);
+  // scene scale: distance to the nearest surface, or the last one seen before entering the solid
+  const scale = RT.camDE > 0 ? RT.camDE : RT.lastDE;
+  let step;
+  if (S.noclip || RT.camDE <= 0) {
+    // through walls (or out of a solid): constant speed at the scale fixed when the mode started, so it does
+    // not slow down at the wall it is meant to pass
+    if (!RT.noclipScale) RT.noclipScale = scale;
+    step = S.flySpeed * boost * RT.noclipScale * dt;
+  } else {
+    RT.noclipScale = 0;
+    // speed follows the scene scale (distance to the nearest surface); the free path along the direction of
+    // motion can raise it up to 2× (an open tunnel) or lower it (a wall ahead). Capping it at 2× keeps all
+    // directions comparable: backing away into empty space must not jump far in one go. One frame never
+    // covers more than half of the free path, so the camera cannot pass through a surface.
+    const ahead = freePath(f.pos, dir, 2 * scale);
+    step = Math.min(S.flySpeed * boost * ahead * dt, 0.5 * ahead);
+    setFly(ahead < 0.9 * scale ? "wall" : ahead > 1.9 * scale ? "open" : "cruise");
+  }
+  if (S.noclip || RT.camDE <= 0) setFly(RT.camDE <= 0 ? "inside" : "cruise");
+  const pos = f.pos.map((p, n) => p + dir[n] * step);
+  if (!precisionAllows(pos)) { setFly("limit"); invalidate(true); return; }
+  setPivot(pos, cam.dist);
+  // the orbit pivot follows: it sits about as far ahead as the nearest surface
+  const deNew = camDE();
+  setPivot(pos, clamp(deNew > 0 ? deNew : cam.dist, 1e-15, 60));
+  invalidate(true);
+}
+
+// ---------------------------------------------------------------- flight HUD: mode, what limits the speed now, how to switch
+function setFly(state) { RT.fly = state; RT.flyAt = performance.now(); updateHud(); }
+let hudKey = "";
+function updateHud(flash) {
+  const hud = $("hud");
+  hud.hidden = S.view !== 0;
+  if (hud.hidden) return;
+  const moving = performance.now() - (RT.flyAt || 0) < 400, st = moving ? RT.fly : "idle";
+  const inside = RT.camDE <= 0;
+  let mode, now, hint;
+  if (S.noclip) {
+    mode = "Through walls";
+    now = inside ? "Inside the solid: keep flying to reach a cavity" : moving ? "Constant speed, surfaces ignored" : "Constant speed, surfaces are ignored";
+    hint = "<kbd>N</kbd> adaptive speed";
+  } else {
+    mode = "Adaptive speed";
+    now = {
+      wall: "Surface ahead: slowing down",
+      open: "Open path: up to ×2",
+      cruise: "Speed follows the distance to the surface",
+      limit: "Precision limit: can't get closer",
+      inside: "Inside the solid: back out or press N",
+      idle: inside ? "Inside the solid: back out or press N" : "Slows down near surfaces, never passes through",
+    }[st];
+    hint = "<kbd>N</kbd> fly through walls";
+  }
+  const warn = st === "limit" || inside, key = [mode, now, hint, warn].join("|");
+  hud.classList.toggle("noclip", !!S.noclip);
+  hud.classList.toggle("warn", warn);
+  if (key !== hudKey) {
+    hudKey = key;
+    $("hudMode").textContent = mode; $("hudNow").textContent = now; $("hudHint").innerHTML = hint;
+  }
+  if (flash) { hud.classList.remove("flash"); void hud.offsetWidth; hud.classList.add("flash"); }
+}
+
+// Distance the camera can travel along dir before reaching a surface (at most maxT)
+function freePath(pos, dir, maxT) {
+  let t = 0;
+  for (let i = 0; i < 48; i++) {
+    const d = deAt(pos.map((x, k) => x + dir[k] * t));
+    if (d <= 1e-3 * Math.max(t, RT.lastDE)) return t;
+    t += d;
+    if (t >= maxT) return maxT;
+  }
+  return t;
+}
+
+// Marches the centre ray on the CPU with the same distance estimate and focuses where it hits
+function focusCenter() {
+  if (S.view !== 0) return;
+  const f = camFrame();
+  let t = 0;
+  for (let i = 0; i < 600; i++) {
+    const d = deAt(f.pos.map((x, k) => x + f.f[k] * t));
+    if (d < 1e-4 * Math.max(t, 1e-15)) break;
+    t += d;
+    if (t > 60) return;
+  }
+  S.focus = Math.max(t, 1e-12); refreshAll(); invalidate();
+}
+
+$("resetCam").addEventListener("click", () => {
+  if (S.view === 1) v2Reset();
+  else { cam.target = [...camHome.target]; cam.dist = camHome.dist; cam.yaw = 0.55; cam.pitch = 0.42; }
+  invalidate(true);
+});
+$("save").addEventListener("click", () => {
+  present();
+  canvas.toBlob((b) => {
+    if (!b) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(b); a.download = "hypercomplex.png"; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  });
+});
+$("collapse").addEventListener("click", () => {
+  const c = $("panel").classList.toggle("collapsed");
+  $("collapse").textContent = c ? "Panel" : "Collapse";
+  $("collapse").setAttribute("aria-expanded", String(!c));
+});
+
+// ---------------------------------------------------------------- scenes: apply, copy, paste
+const DEFAULTS = JSON.parse(JSON.stringify(S));
+const PERF_KEYS = ["scale", "previewMax", "budget"];   // the viewer's own speed settings survive scene changes
+const sceneSel = $("scene");
+sceneSel.append(Object.assign(el("option", null, "— scenes —"), { value: "" }));
+SCENES.forEach((sc, i) => sceneSel.append(Object.assign(el("option", null, sc.name), { value: String(i) })));
+sceneSel.addEventListener("change", () => { if (sceneSel.value !== "") applyScene(SCENES[+sceneSel.value]); });
+
+// decimal string ↔ fixed point BigInt / 2^P, so a deep 2D position survives copy and paste exactly
+function decToFix(str, P) {
+  const m = /^\s*(-?)(\d*)(?:\.(\d*))?\s*$/.exec(String(str));
+  if (!m) throw new Error(`not a number: ${str}`);
+  // rounded, not truncated: with fixToDec's digit count this makes the round trip exact
+  const frac = m[3] || "", den = 10n ** BigInt(frac.length), v = ((BigInt((m[2] || "0") + frac) << BigInt(P)) + den / 2n) / den;
+  return m[1] ? -v : v;
+}
+function fixToDec(x, P) {
+  const neg = x < 0n, a = neg ? -x : x, digits = Math.ceil(P * 0.30103) + 1;
+  const ip = a >> BigInt(P), fp = ((a & ((1n << BigInt(P)) - 1n)) * 10n ** BigInt(digits)) >> BigInt(P);
+  return (neg ? "-" : "") + ip + "." + fp.toString().padStart(digits, "0").replace(/0+$/, "0");
+}
+function setState(st, camArr) {
+  const perf = Object.fromEntries(PERF_KEYS.map((k) => [k, S[k]]));
+  const { v2, ...rest } = JSON.parse(JSON.stringify(st));
+  Object.assign(S, JSON.parse(JSON.stringify(DEFAULTS)), rest, perf);
+  if (camArr) { cam.target = camArr.slice(0, 3); cam.yaw = camArr[3]; cam.pitch = camArr[4]; cam.dist = camArr[5]; }
+  camHome = { target: [...cam.target], dist: cam.dist };
+  RT.useDF = false;
+  v2Reset();
+  if (v2) { v2SetScale(+v2.scale || S.bound); V2.u = decToFix(v2.u, V2.P); V2.v = decToFix(v2.v, V2.P); }
+  paramKey = "";
+  renderSlots(); refreshAll(); updateVecGroups(); updateAxes(); updateViewUI();
+  trapBox.hidden = S.trapMode !== 1;
+  lampBox.hidden = S.lightMode === 0; lampDistRow.hidden = S.lightMode !== 2;
+  requestCompile();
+}
+function applyScene(sc) {
+  const p = PRESETS[sc.preset];
+  const base = {
+    slots: p.slots ? p.slots.map((sl) => ({ ...sl })) : [{ f: p.f, n: 1 }], params: { ...(p.params || {}) }, alg: p.alg, julia: p.julia, bound: p.bound,
+    bail: p.bail || 16, iter: p.iter || DEFAULTS.iter, c: p.c || DEFAULTS.c, z0: p.z0 || DEFAULTS.z0,
+  };
+  presetSel.value = String(sc.preset);
+  setState({ ...base, ...sc.s }, sc.cam);
+  $("sceneNote").textContent = sc.note || "";
+}
+const sceneJSON = () => {
+  const st = Object.fromEntries(Object.entries(S).filter(([k, v]) => !PERF_KEYS.includes(k) && JSON.stringify(v) !== JSON.stringify(DEFAULTS[k]) || k === "slots"));
+  const r = (x) => +x.toPrecision(17);   // full double: deep 3D views must not drift
+  if (S.view === 1) st.v2 = { u: fixToDec(V2.u, V2.P), v: fixToDec(V2.v, V2.P), scale: V2.scale };
+  return JSON.stringify({ s: st, cam: [...cam.target.map(r), r(cam.yaw), r(cam.pitch), r(cam.dist)] });
+};
+$("sceneCopy").addEventListener("click", async () => {
+  const text = sceneJSON();
+  $("sceneText").value = text; $("sceneLoadBox").hidden = false;
+  try { await navigator.clipboard.writeText(text); $("sceneNote").textContent = "Scene copied to the clipboard."; }
+  catch (e) { $("sceneText").select(); $("sceneNote").textContent = "Could not write to the clipboard: copy the text from the field."; }
+});
+$("sceneLoadBtn").addEventListener("click", () => { $("sceneLoadBox").hidden = !$("sceneLoadBox").hidden; });
+$("sceneApply").addEventListener("click", () => {
+  try {
+    const o = JSON.parse($("sceneText").value);
+    if (!o || typeof o.s !== "object") throw new Error("missing field s");
+    sceneSel.value = ""; presetSel.value = "";
+    setState(o.s, Array.isArray(o.cam) && o.cam.length === 6 ? o.cam : null);
+    $("sceneNote").textContent = "Scene loaded.";
+  } catch (e) { $("sceneNote").textContent = "Could not read the scene: " + e.message; }
+});
+
+// ---------------------------------------------------------------- guided tour
+// Drives the real UI: picks a preset, animates parameters, flies with simulated W / Shift / N key presses,
+// switches the light, and pauses for full renders, highlighting each control it uses.
+const tour = { on: false, stop: false };
+const TOUR_STEPS = 5;
+const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
+async function tourFrame() { if (tour.stop) throw new Error("tour stopped"); await nextFrame(); }
+async function tourSleep(ms) { const t0 = performance.now(); while (performance.now() - t0 < ms) await tourFrame(); }
+function tourSay(step, text, progress = null) {
+  $("tour").hidden = false;
+  $("tourStep").textContent = step ? `Step ${step} of ${TOUR_STEPS}` : "Guided tour";
+  $("tourText").textContent = text;
+  if (progress !== null) $("tourBar").style.width = `${Math.round(clamp(progress, 0, 1) * 100)}%`;
+}
+function tourHighlight(...els) {
+  document.querySelectorAll(".tour-hl").forEach((e) => e.classList.remove("tour-hl"));
+  for (const e of els) {
+    if (!e) continue;
+    if ($("panel").contains(e)) {
+      if ($("panel").classList.contains("collapsed")) $("collapse").click();
+      for (let d = e.closest("details"); d; d = d.parentElement.closest("details")) d.open = true;
+      e.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+    e.classList.add("tour-hl");
+  }
+}
+async function tourCompiled() { while (RT.pending || !RT.prog) { pollCompile(); await tourFrame(); } }
+async function tourAnimate(set, from, to, ms) {
+  const t0 = performance.now();
+  for (;;) {
+    const k = clamp((performance.now() - t0) / ms, 0, 1), e = k * k * (3 - 2 * k);
+    set(from + (to - from) * e); refreshAll(); invalidate();
+    if (k >= 1) return;
+    await tourFrame();
+  }
+}
+// Pause on a key view: let the progressive renderer finish a full frame, showing its progress
+async function tourStill(step, text, samples) {
+  keys.clear();
+  S.samples = samples; refreshAll(); invalidate();
+  await tourCompiled();
+  for (;;) {
+    const p = RT.phase === "full" ? (RT.sample + RT.row / Math.max(RT.full.h, 1)) / S.samples : RT.phase === "done" ? 1 : 0;
+    tourSay(step, text, p);
+    if (RT.phase === "done" && !RT.pending) break;
+    await tourFrame();
+  }
+  await tourSleep(1500);
+}
+function tourToggleNoclip() { S.noclip = S.noclip ? 0 : 1; RT.noclipScale = 0; refreshAll(); updateHud(true); }
+const paramGroup = (name) => [...$("paramHost").querySelectorAll(".group")].find((g) => g.querySelector(".label span").textContent === name);
+// Hand-picked destination inside the Mandelbox with scale −3.115, rmin 0.46: position, yaw/pitch in degrees, pivot
+const TOUR_TARGET = { pos: [-1.8855896770559484, 0.9551917720896579, 0.46408523675871816], yaw: -39.6055486065, pitch: 19.3861435258, dist: 0.04134679837017413 };
+// Turns the camera in place toward dir
+async function tourTurn(dir, ms) {
+  const pos = camFrame().pos, y0 = cam.yaw, p0 = cam.pitch;
+  let y1 = Math.atan2(-dir[0], -dir[2]); const p1 = Math.asin(clamp(-dir[1], -1, 1));
+  while (y1 - y0 > Math.PI) y1 -= 2 * Math.PI;
+  while (y1 - y0 < -Math.PI) y1 += 2 * Math.PI;
+  await tourAnimate((k) => { cam.yaw = y0 + (y1 - y0) * k; cam.pitch = p0 + (p1 - p0) * k; setPivot(pos, cam.dist); }, 0, 1, ms);
+}
+async function tourFly(cond, maxMs, boost) {
+  keys.add("KeyW"); if (boost) keys.add("ShiftLeft");
+  const t0 = performance.now();
+  try { while (!cond() && performance.now() - t0 < maxMs) await tourFrame(); }
+  finally { keys.delete("KeyW"); keys.delete("ShiftLeft"); }
+}
+function stopTour() { tour.stop = true; }
+async function runTour() {
+  if (tour.on) return;
+  tour.on = true; tour.stop = false;
+  $("guide").hidden = true;
+  const userScale = S.scale;
+  S.scale = Math.min(S.scale, 0.75);
+  $("tourStop").textContent = "Stop";
+  try {
+    // 1: a preset
+    tourSay(1, "Formulas start from presets. Here: Mandelbox with scale −1.5.", 0);
+    tourHighlight($("preset"));
+    await tourSleep(1200);
+    S.view = 0; S.cut = false; S.noclip = 0; S.lightMode = 0; S.shadows = 1; S.flySpeed = 1;
+    presetSel.value = "13"; applyPreset(PRESETS[13]);
+    S.cut = false; updateViewUI(); refreshAll(); requestCompile();
+    lampBox.hidden = true;
+    await tourStill(1, "Rendering a still frame of the preset…", 3);
+
+    // 2: parameters
+    tourHighlight(paramGroup("scale"));
+    tourSay(2, "Every name in a formula is a slider. Pushing scale from −1.5 to −3.115 hollows the box out into chambers…", 0);
+    await tourAnimate((v) => { S.params.scale = v; }, -1.5, -3.115, 3500);
+    tourHighlight(paramGroup("rmin"));
+    tourSay(2, "…and rmin (the sphere inversion radius) shapes the rounded holes between them.", 0);
+    await tourAnimate((v) => { S.params.rmin = v; }, 0.5, 0.46, 1800);
+    S.bound = 3.7; refreshAll();   // this variant reaches a radius of about 3.3
+    await tourStill(2, "Rendering the porous Mandelbox…", 3);
+
+    // 3: fly in with W (adaptive speed)
+    // straight line from the current view to the destination; the first wall on it ends the adaptive part
+    const pos0 = camFrame().pos, goal = TOUR_TARGET.pos;
+    const raw = goal.map((x, i) => x - pos0[i]), total = Math.hypot(...raw), dir = raw.map((x) => x / total);
+    const path = { dir, total, tS: Math.min(freePath(pos0, dir, total), total) };
+    await tourTurn(dir, 1500);
+    const travelled = () => { const p = camFrame().pos; return p.reduce((s, x, i) => s + (x - pos0[i]) * dir[i], 0); };
+    tourHighlight($("hud"));
+    tourSay(3, "Hold W to fly in. Speed follows the distance to the surface, so the camera slows down and never crashes into it.", 0);
+    await tourSleep(800);
+    await tourFly(() => { tourSay(3, "Hold W to fly in. Speed follows the distance to the surface, so the camera slows down and never crashes into it.", travelled() / path.tS); return travelled() >= path.tS * 0.96 || RT.camDE < 0.03; }, 9000);
+
+    // 4: through the wall with N
+    tourHighlight($("hud"), noclipCheck);
+    tourSay(4, "Press N to fly through walls, then hold W (and Shift for ×4) to cross into the cavity.", 0);
+    await tourSleep(1200);
+    tourToggleNoclip();
+    const dist = path.total - travelled();
+    S.flySpeed = clamp(dist / (4 * Math.max(sceneDE(), 1e-6) * 4), 0.05, 20); refreshAll();
+    const d0 = travelled();
+    await tourFly(() => { tourSay(4, "Through walls: constant speed, surfaces ignored. Inside the solid the screen is a flat colour until the cavity opens.", (travelled() - d0) / Math.max(dist, 1e-9)); return travelled() >= path.total; }, 12000, true);
+    tourToggleNoclip();
+    S.flySpeed = 1; refreshAll();
+    // land exactly on the destination and turn to its view
+    setPivot(goal, cam.dist); invalidate(true);
+    tourSay(4, "Inside a cavity, back to adaptive speed. Turning to the view…", 0);
+    const ty = TOUR_TARGET.yaw * deg, tp = TOUR_TARGET.pitch * deg, cp = Math.cos(tp);
+    await tourTurn([-cp * Math.sin(ty), -Math.sin(tp), -cp * Math.cos(ty)], 2200);
+    setPivot(goal, TOUR_TARGET.dist); RT.camDE = camDE(); if (RT.camDE > 0) RT.lastDE = RT.camDE; invalidate(true);
+    const de = Math.max(sceneDE(), 1e-9), viewLen = freePath(goal, camFrame().f, 60 * de);
+    await tourStill(4, "Inside the Mandelbox. Rendering…", 3);
+
+    // 5: first-person light
+    tourHighlight(lightModeGroup);
+    tourSay(5, "The sun barely reaches in here. Switch the key light to a headlamp at the camera…", 0);
+    await tourSleep(1400);
+    // the lamp's reach (in units of the distance to the nearest wall) covers the corridor we look along
+    S.lightMode = 1; S.lampRange = clamp(viewLen / de * 0.8, 4, 50); lampBox.hidden = false; lampDistRow.hidden = true; refreshAll(); invalidate();
+    await tourSleep(600);
+    tourHighlight(lightIntGroup);
+    tourSay(5, "…and boost it so the light reaches the relief.", 0);
+    await tourAnimate((v) => { S.lightInt = v; }, S.lightInt, 3.2, 2000);
+    await tourStill(5, "Final render with the headlamp…", 8);
+    tourHighlight();
+    tourSay(0, "That's the recipe: preset → parameters → fly in with W → N through walls → light. Copy link keeps this view. — Artem Selivanov (broly)", 1);
+    $("tourStop").textContent = "Close";
+    tour.on = false;
+    return;
+  } catch (e) {
+    if (e.message !== "tour stopped") throw e;
+  } finally {
+    keys.clear();
+    S.scale = userScale; refreshAll();
+    if (tour.on) { tour.on = false; tourHighlight(); $("tour").hidden = true; }
+    if (!guideHidden) $("guide").hidden = false;
+  }
+}
+let guideHidden = false;
+try { guideHidden = localStorage.getItem("hc.guideHidden") === "1"; } catch (e) { /* storage unavailable */ }
+$("guide").hidden = guideHidden;
+$("guideBtn").addEventListener("click", runTour);
+$("tourStart2").addEventListener("click", runTour);
+$("guideHide").addEventListener("click", () => {
+  guideHidden = true; $("guide").hidden = true;
+  try { localStorage.setItem("hc.guideHidden", "1"); } catch (e) { /* storage unavailable */ }
+});
+$("tourStop").addEventListener("click", () => { if (tour.on) stopTour(); else { tourHighlight(); $("tour").hidden = true; } });
+
+// ---------------------------------------------------------------- shareable link: the whole state in the URL hash
+// "#s=" + "z" + base64url(deflate-raw(scene JSON)), or "j" + base64url(JSON) where CompressionStream is missing
+const b64u = {
+  enc: (bytes) => { let t = ""; for (let i = 0; i < bytes.length; i += 0x8000) t += String.fromCharCode(...bytes.subarray(i, i + 0x8000)); return btoa(t).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); },
+  dec: (str) => Uint8Array.from(atob(str.replace(/-/g, "+").replace(/_/g, "/")), (ch) => ch.charCodeAt(0)),
+};
+const streamBytes = async (bytes, transform) => new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(transform)).arrayBuffer());
+async function packState(text) {
+  const raw = new TextEncoder().encode(text);
+  if (typeof CompressionStream === "function") return "z" + b64u.enc(await streamBytes(raw, new CompressionStream("deflate-raw")));
+  return "j" + b64u.enc(raw);
+}
+async function unpackState(code) {
+  const bytes = b64u.dec(code.slice(1));
+  if (code[0] === "z") return new TextDecoder().decode(await streamBytes(bytes, new DecompressionStream("deflate-raw")));
+  if (code[0] === "j") return new TextDecoder().decode(bytes);
+  throw new Error("unknown link format");
+}
+let lastHash = "";
+async function writeHash() {
+  if (!RT.sched) return;
+  const h = "#s=" + await packState(sceneJSON());
+  if (h === lastHash) return;
+  lastHash = h;
+  try { history.replaceState(null, "", h); } catch (e) { /* some file:// setups refuse; the Copy link button still works */ }
+}
+// Loads the state from the address bar; false when there is no (new) state in it
+async function readHash() {
+  const m = /^#s=([A-Za-z0-9_-]+)$/.exec(location.hash);
+  if (!m || location.hash === lastHash) return false;
+  try {
+    const o = JSON.parse(await unpackState(m[1]));
+    if (!o || typeof o.s !== "object") throw new Error("missing field s");
+    lastHash = location.hash;
+    sceneSel.value = ""; presetSel.value = "";
+    setState(o.s, Array.isArray(o.cam) && o.cam.length === 6 ? o.cam : null);
+    return true;
+  } catch (e) { $("sceneNote").textContent = "Could not read the link: " + e.message; return false; }
+}
+window.addEventListener("hashchange", () => { readHash(); });
+$("linkCopy").addEventListener("click", async () => {
+  await writeHash();
+  const url = location.href.split("#")[0] + lastHash;
+  try { await navigator.clipboard.writeText(url); $("sceneNote").textContent = "Link copied to the clipboard."; }
+  catch (e) { $("sceneText").value = url; $("sceneLoadBox").hidden = false; $("sceneText").select(); $("sceneNote").textContent = "Clipboard unavailable: copy the link from the field."; }
+});
+
+// ---------------------------------------------------------------- About (ⓘ or ?)
+function openAbout() { const d = $("about"); if (!d.open) d.showModal(); }
+$("aboutBtn").addEventListener("click", openAbout);
+$("aboutClose").addEventListener("click", () => $("about").close());
+// a click outside the dialog box (on the backdrop) closes it
+$("about").addEventListener("click", (e) => {
+  const r = $("about").getBoundingClientRect();
+  if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) $("about").close();
+});
+
+// ---------------------------------------------------------------- hide-everything mode (H)
+let toastTimer = 0, wakeTimer = 0;
+function setUiHidden(hide) {
+  document.body.classList.toggle("ui-hidden", hide);
+  clearTimeout(toastTimer);
+  $("uiToast").hidden = !hide;
+  if (hide) toastTimer = setTimeout(() => { $("uiToast").hidden = true; }, 2500);
+}
+$("hideUi").addEventListener("click", () => setUiHidden(true));
+$("uiShow").addEventListener("click", () => setUiHidden(false));
+// the corner button fades in while the pointer moves, so a mouse or touch user can always get back
+window.addEventListener("pointermove", () => {
+  if (!document.body.classList.contains("ui-hidden")) return;
+  $("uiShow").classList.add("awake");
+  clearTimeout(wakeTimer);
+  wakeTimer = setTimeout(() => $("uiShow").classList.remove("awake"), 1800);
+});
+
+// ---------------------------------------------------------------- start
+updateViewUI();
+readHash().then((loaded) => { if (!loaded) { presetSel.value = "0"; applyPreset(PRESETS[0]); } });
+requestAnimationFrame(tick);
+</script>
+</body>
+</html>
