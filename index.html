@@ -3211,7 +3211,7 @@ async function runTour() {
     await tourAnimate((v) => { S.lightInt = v; }, S.lightInt, 3.2, 2000);
     await tourStill(5, "Final render with the headlamp…", 8);
     tourHighlight();
-    tourSay(0, "That's the recipe: preset → parameters → fly in with W → N through walls → light. Copy link keeps this view. — Artem Selivanov (broly)", 1);
+    tourSay(0, "That's the recipe: preset -> parameters -> fly in with W -> N through walls -> light. Copy link keeps this view.", 1);
     $("tourStop").textContent = "Close";
     tour.on = false;
     return;
