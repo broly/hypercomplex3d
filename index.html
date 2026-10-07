@@ -121,7 +121,10 @@ body { font-family: var(--font-ui); font-size: 13px; }
 .seg button:focus-visible, .iconbtn:focus-visible, .btn:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; box-shadow: var(--glow); }
 
 /* sliders: a thin aurora track with a glowing diamond knob */
-input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 18px; margin: 0; background: transparent; cursor: pointer; }
+input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 18px; margin: 0; background: transparent; cursor: pointer; touch-action: manipulation; }
+.group.reset-flash .vnum { animation: resetflash 0.6s ease-out; }
+@keyframes resetflash { from { color: var(--accent3); text-shadow: 0 0 10px var(--accent3); } }
+@media (prefers-reduced-motion: reduce) { .group.reset-flash .vnum { animation: none; } }
 input[type=range]::-webkit-slider-runnable-track { height: 2px; background: linear-gradient(90deg, rgba(110, 231, 255, 0.85), rgba(167, 139, 250, 0.7) 55%, rgba(118, 160, 255, 0.22)); border-radius: 1px; }
 input[type=range]::-webkit-slider-thumb {
   -webkit-appearance: none; appearance: none; width: 11px; height: 11px; margin-top: -4.5px;
@@ -408,7 +411,10 @@ body.ui-hidden .flypad { display: none !important; }
           <code>abs</code> (absolute value of each component), <code>conj</code>, <code>norm</code> = |q|, <code>re</code>.</p>
           <p>Folds and Mandelbulb: <code>boxfold(z, r)</code> reflects components beyond ±r,
           <code>spherefold(z, rmin, rmax)</code> is a sphere inversion, <code>bulb(z, n)</code> is the Mandelbulb "triplex" power over the axes 1, i, j (angle from the j axis),
-          <code>bulbw(z, n)</code> is Daniel White's original 2007 variant (latitude angle, negated j; trig-free for n = 2).
+          <code>bulbw(z, n)</code> is Daniel White's original 2007 variant (latitude angle, negated j; trig-free for n = 2),
+          <code>bulbp(z, n)</code> the same with +j, <code>rucker(z, n)</code>, <code>xmas(z, n)</code> (Christmas tree), <code>fwdrev(z, n)</code>,
+          <code>bulb4(z)</code> (quadratic 4D Mandelbulb) and <code>tmul(a, b)</code> (triplex product, e.g. Lambdabulb <code>tmul(c, z − bulbp(z, 4))</code>).
+          Other squares from Paul Nylander's catalogue: <code>mandelbar bristor makin</code> (3D), <code>roundy squarry cousin mvar</code> (4D).
           Mandelbox: <code>2·spherefold(boxfold(z, 1), 0.5, 1) + c</code>.</p>
           <p>Hybrid: several formulas, each repeated for the given number of iterations, then the next one, in a loop.</p>
           <p>Parameters: any other name is a real parameter with its own slider, e.g. <code>scale spherefold(boxfold(z, fold), rmin, rmax) + c</code>.
@@ -591,13 +597,54 @@ const PRESETS = [
   { name: "Hybrid: Mandelbox −1.5 ×2 → Mandelbulb² ×1", slots: [{ f: "scale spherefold(boxfold(z, fold), rmin, rmax) + c", n: 2 }, { f: "bulb(z, power) + c", n: 1 }], params: { scale: -1.5, fold: 1, rmin: 0.5, rmax: 1, power: 2 }, alg: 0, julia: 0, z0: [0, 0, 0, 0], bound: 3.7, bail: 100, iter: 20, cam: [0, 0, 0, 8] },
   { name: "Hybrid: quaternion z² + c → Mandelbox −1.5", slots: [{ f: "z^2 + c", n: 1 }, { f: "scale spherefold(boxfold(z, fold), rmin, rmax) + c", n: 1 }], params: { scale: -1.5, fold: 1, rmin: 0.5, rmax: 1 }, alg: 0, julia: 0, z0: [0, 0, 0, 0], bound: 3.7, bail: 100, iter: 20, cam: [0, 0, 0, 8] },
   { name: "White's quadratic Mandelbulb (2007 triplex)", f: "bulbw(z, power) + c", params: { power: 2 }, alg: 0, julia: 0, z0: [0, 0, 0, 0], bound: 2.1, iter: 24, cam: [-0.5, 0, 0, 4.4] },
+  // from Paul Nylander's catalogue, bugman123.com/Hypercomplex
+  { name: "3D Mandelbar (Baird)  {x²−y²−z², 2xy, −2xz}", f: "mandelbar(z) + c", alg: 0, julia: 0, z0: [0, 0, 0, 0], bound: 2.1, cam: [-0.5, 0, 0, 4.4] },
+  { name: "3D Mandelbar: the spaceship minibrot", f: "mandelbar(z) + c", alg: 0, julia: 0, z0: [0, 0, 0, 0], bound: 2.1, iter: 30, cam: [-1.7549, 0, 0, 0.11] },
+  { name: "Bristorbrot  {x²−y²−z², y(2x−z), z(2x+y)}", f: "bristor(z) + c", alg: 0, julia: 0, z0: [0, 0, 0, 0], bound: 2.1, cam: [-0.5, 0, 0, 4.4] },
+  { name: "Makin's 3D Mandelbrot  {x²−y²−z², 2xy, 2(x−y)z}", f: "makin(z) + c", alg: 0, julia: 0, z0: [0, 0, 0, 0], bound: 2.1, cam: [-0.5, 0, 0, 4.4] },
+  { name: "4D \"Roundy\" Mandelbrot", f: "roundy(z) + c", alg: 0, julia: 0, z0: [0, 0, 0, 0], bound: 2.1, cam: [-0.5, 0, 0, 4.4] },
+  { name: "4D \"Roundy\" Julia  c = −0.2 + 0.8i", f: "roundy(z) + c", alg: 0, julia: 1, c: [-0.2, 0.8, 0, 0], bound: 1.4, cam: [0, 0, 0, 3.3] },
+  { name: "4D \"Squarry\" Mandelbrot", f: "squarry(z) + c", alg: 0, julia: 0, z0: [0, 0, 0, 0], bound: 2.1, cam: [-0.5, 0, 0, 4.4] },
+  { name: "4D \"Squarry\" Julia  c = −0.2 + 0.8i", f: "squarry(z) + c", alg: 0, julia: 1, c: [-0.2, 0.8, 0, 0], bound: 1.4, cam: [0, 0, 0, 3.3] },
+  { name: "4D \"Mandy Cousin\" Mandelbrot", f: "cousin(z) + c", alg: 0, julia: 0, z0: [0, 0, 0, 0], bound: 2.1, cam: [-0.5, 0, 0, 4.4] },
+  { name: "4D \"Mandy Cousin\" Julia  c = −0.2 + 0.8i", f: "cousin(z) + c", alg: 0, julia: 1, c: [-0.2, 0.8, 0, 0], bound: 1.7, cam: [0, 0, 0, 3.6] },
+  { name: "4D Mandelbrot variation (Makin)", f: "mvar(z) + c", alg: 0, julia: 0, z0: [0, 0, 0, 0], bound: 2.1, cam: [-0.5, 0, 0, 4.4] },
+  { name: "4D Julia variation (Makin)  c = −0.2 + 0.8i", f: "mvar(z) + c", alg: 0, julia: 1, c: [-0.2, 0.8, 0, 0], bound: 1.4, cam: [0, 0, 0, 3.3] },
+  { name: "4D Mandelbulb, quadratic (Nylander)", f: "bulb4(z) + c", alg: 0, julia: 0, z0: [0, 0, 0, 0], bound: 2.1, cam: [-0.4, 0, 0, 4.2] },
+  { name: "Positive-z Mandelbulb, n = 8", f: "bulbp(z, power) + c", params: { power: 8 }, alg: 0, julia: 0, z0: [0, 0, 0, 0], bound: 1.3, cam: [0, 0, 0, 3.6] },
+  { name: "Rucker's 3D Mandelbrot, n = 2", f: "rucker(z, power) + c", params: { power: 2 }, alg: 0, julia: 0, z0: [0, 0, 0, 0], bound: 2.1, cam: [-0.5, 0, 0, 4.4] },
+  { name: "Rucker's 3D Mandelbrot, n = 8", f: "rucker(z, power) + c", params: { power: 8 }, alg: 0, julia: 0, z0: [0, 0, 0, 0], bound: 1.3, cam: [0, 0, 0, 3.6] },
+  { name: "Christmas-tree Mandelbrot, n = 2", f: "xmas(z, power) + c", params: { power: 2 }, alg: 0, julia: 0, z0: [0, 0, 0, 0], bound: 2.1, cam: [-0.5, 0, 0, 4.4] },
+  { name: "Christmas-tree Mandelbrot, n = 8", f: "xmas(z, power) + c", params: { power: 8 }, alg: 0, julia: 0, z0: [0, 0, 0, 0], bound: 1.3, cam: [0, 0, 0, 3.6] },
+  { name: "Forward/reverse Mandelbulb, n = 8", f: "fwdrev(z, power) + c", params: { power: 8 }, alg: 0, julia: 0, z0: [0, 0, 0, 0], bound: 1.4, cam: [0, 0, 0, 3.8] },
+  { name: "Juliabulb (White's quadratic)  c = −0.2 + 0.8i", f: "bulbw(z, power) + c", params: { power: 2 }, alg: 0, julia: 1, c: [-0.2, 0.8, 0, 0], bound: 1.4, cam: [0, 0, 0, 3.3] },
+  { name: "Juliabulb, 4th order  c = −0.5 + 0.5i + 0.3j", f: "bulbw(z, power) + c", params: { power: 4 }, alg: 0, julia: 1, c: [-0.5, 0.5, 0.3, 0], bound: 1.3, cam: [0, 0, 0, 3.2] },
+  { name: "Lambdabulb (Barnett)  c ⊗ (z − z⁴)", f: "tmul(c, z - bulbp(z, 4))", alg: 0, julia: 1, c: [1.0625, 0.2375, 0, 0], bound: 1.3, bail: 2, iter: 40, cam: [0, 0, 0, 3.2] },
 ];
 
 // ---------------------------------------------------------------- formula parser → AST over 4-component constants
 const FN = { exp: "exp", log: "log", ln: "log", sqrt: "sqrt", sin: "sin", cos: "cos", tan: "tan", sinh: "sinh", cosh: "cosh", tanh: "tanh",
-  atan: "atan", arctan: "atan", abs: "abs", conj: "conj", norm: "norm", re: "re", boxfold: "boxfold", spherefold: "spherefold", bulb: "bulb", bulbw: "bulbw" };
+  atan: "atan", arctan: "atan", abs: "abs", conj: "conj", norm: "norm", re: "re", boxfold: "boxfold", spherefold: "spherefold", bulb: "bulb", bulbw: "bulbw",
+  bulbp: "bulbp", rucker: "rucker", xmas: "xmas", fwdrev: "fwdrev", bulb4: "bulb4",
+  mandelbar: "mandelbar", bristor: "bristor", makin: "makin", roundy: "roundy", squarry: "squarry", cousin: "cousin", mvar: "mvar" };
+// functions of two hypercomplex arguments
+const FN2 = { tmul: "tmul" };
 // space transforms with numeric parameters and their defaults
-const FOLDS = { boxfold: [1], spherefold: [0.5, 1], bulb: [8], bulbw: [2] };
+const FOLDS = { boxfold: [1], spherefold: [0.5, 1], bulb: [8], bulbw: [2], bulbp: [8], rucker: [2], xmas: [2], fwdrev: [8], bulb4: [],
+  mandelbar: [], bristor: [], makin: [], roundy: [], squarry: [], cousin: [], mvar: [] };
+// quadratic "squares" of 3D/4D hypercomplex numbers from Paul Nylander's catalogue (bugman123.com/Hypercomplex):
+// every output component is a sum of terms coef·a[i]·a[j] over the components x y z w (indices 0..3)
+const POLY = {
+  mandelbar: [[[1, 0, 0], [-1, 1, 1], [-1, 2, 2]], [[2, 0, 1]], [[-2, 0, 2]], []],                           // Eric Baird
+  bristor: [[[1, 0, 0], [-1, 1, 1], [-1, 2, 2]], [[2, 0, 1], [-1, 1, 2]], [[2, 0, 2], [1, 1, 2]], []],       // Doug Bristor
+  makin: [[[1, 0, 0], [-1, 1, 1], [-1, 2, 2]], [[2, 0, 1]], [[2, 0, 2], [-2, 1, 2]], []],                    // David Makin
+  roundy: [[[1, 0, 0], [-1, 1, 1], [-1, 2, 2], [-1, 3, 3]], [[2, 0, 1], [2, 2, 3]], [[2, 0, 2], [2, 1, 3]], [[2, 0, 3], [2, 1, 2]]],
+  squarry: [[[1, 0, 0], [-1, 1, 1], [-1, 2, 2], [-1, 3, 3]], [[2, 0, 1], [2, 2, 3]], [[2, 0, 2], [2, 1, 3]], [[2, 0, 3], [-2, 1, 2]]],
+  cousin: [[[1, 0, 0], [-1, 1, 1], [-1, 2, 2], [1, 3, 3]], [[2, 0, 1], [2, 2, 3]], [[2, 0, 2], [2, 1, 3]], [[2, 0, 3], [2, 1, 2]]],
+  mvar: [[[1, 0, 0], [-1, 1, 1], [-1, 2, 2], [-1, 3, 3]], [[2, 0, 1], [2, 2, 3]], [[2, 0, 2], [-2, 1, 3]], [[2, 0, 3], [2, 1, 2]]],
+};
+// power-type triplex maps with a degree argument (bulb4 is the fixed quadratic 4D Mandelbulb)
+const TRIGN = ["bulbp", "rucker", "xmas", "fwdrev"];
 const CONSTS = { i: [0, 1, 0, 0], j: [0, 0, 1, 0], k: [0, 0, 0, 1], pi: [Math.PI, 0, 0, 0], "π": [Math.PI, 0, 0, 0], e: [Math.E, 0, 0, 0] };
 const fnName = (n) => FN[n] || FN[n.toLowerCase()];
 
@@ -676,6 +723,11 @@ function parseFormula(src) {
     if (t.t === "num") return K([t.v, 0, 0, 0]);
     if (t.t === "(") { const a = expr(); expect(")", "Missing closing parenthesis \")\""); return a; }
     if (t.t === "id") {
+      const f2 = FN2[t.v.toLowerCase()];
+      if (f2 && peek().t === "(") {
+        next(); const a = expr(); expect(",", `${t.v}(a, b) needs two arguments`); const b = expr(); expect(")", `Missing ")" after the arguments of ${t.v}`);
+        return { t: "fn2", f: f2, a, b };
+      }
       const f = fnName(t.v);
       if (f && peek().t === "(") {
         next();
@@ -725,7 +777,10 @@ function zDegree(n) {
     case "v": return n.n === "z" ? 1 : 0;
     case "neg": return zDegree(n.a);
     case "p": return 0;
-    case "fn": return n.f === "bulb" || n.f === "bulbw" ? argNum(n.p[0]) * zDegree(n.a) : ["abs", "conj", "norm", "re", "boxfold", "spherefold"].includes(n.f) ? zDegree(n.a) : NaN;
+    case "fn": return n.f === "bulb" || n.f === "bulbw" || TRIGN.includes(n.f) ? argNum(n.p[0]) * zDegree(n.a)
+      : POLY[n.f] || n.f === "bulb4" ? 2 * zDegree(n.a)
+      : ["abs", "conj", "norm", "re", "boxfold", "spherefold"].includes(n.f) ? zDegree(n.a) : NaN;
+    case "fn2": return zDegree(n.a) + zDegree(n.b);
   }
   const a = zDegree(n.a), b = zDegree(n.b);
   if (n.op === "+" || n.op === "-") return Math.max(a, b);
@@ -761,6 +816,7 @@ function gen(n, used) {
     case "neg": return `h_neg(${gen(n.a, used)})`;
     case "p": return `LIFT(vec4(${pGL(n.name)}, 0.0, 0.0, 0.0))`;
     case "fn": used.add(n.f); return `f_${n.f}(${gen(n.a, used)}${(n.p || []).map((v) => ", " + argGL(v)).join("")})`;
+    case "fn2": used.add(n.f); return `f_${n.f}(${gen(n.a, used)}, ${gen(n.b, used)})`;
   }
   const { op, a, b } = n;
   if (op === "+") return `h_add(${gen(a, used)}, ${gen(b, used)})`;
@@ -815,6 +871,7 @@ function genPert(ast) {
         if (n.f === "norm") return tmp(`vec4(length(${a.X}), 0.0, 0.0, 0.0)`, `vec4(dnorm(${a.X}, ${a.x}), 0.0, 0.0, 0.0)`);
         throw new Error(`${n.f}() is not a polynomial`);
       }
+      case "fn2": throw new Error(`${n.f}() has no perturbation form`);
     }
     const { op, a, b } = n;
     if (op === "+" || op === "-") { const A = g(a), B = g(b); return tmp(`${A.X} ${op} ${B.X}`, `${A.x} ${op} ${B.x}`); }
@@ -884,7 +941,8 @@ const BULB_DF = `#ifndef BULB_DF
 #define BULB_DF
 Q bcmulD(Q a, Q b) { vec4 s = vec4(-1.0, 1.0, -1.0, 1.0); return dadd(dmul(Q(a.hi.xxzz, a.lo.xxzz), b), dmul(Q(a.hi.yyww, a.lo.yyww), Q(b.hi.yxwz * s, b.lo.yxwz * s))); }
 Q dsqrtD(Q a) { vec4 h = sqrt(max(a.hi, 0.0)); Q S = dlift(h); return dadd(S, dmulf(dsub(a, dmul(S, S)), 0.5 / max(h, vec4(1e-30)))); }
-Q bulbPowD(Q a, float n, bool white) {
+// mode 0: standard bulb; 1: White's (−sin nφ in z); 2: White's with +sin nφ (the "positive z" variant)
+Q bulbPowD(Q a, float n, int mode) {
   Q sq = dmul(a, a);
   Q rho2 = dadd(Q(sq.hi.xxxx, sq.lo.xxxx), Q(sq.hi.yyyy, sq.lo.yyyy)), r2 = dadd(rho2, Q(sq.hi.zzzz, sq.lo.zzzz));
   if (r2.hi.x == 0.0) return dlift(vec4(0.0));
@@ -892,14 +950,14 @@ Q bulbPowD(Q a, float n, bool white) {
   Q U = dlift(vec4(1.0, 0.0, 0.0, 0.0));
   if (rho2.hi.x != 0.0) U = dmul(Q(vec4(a.hi.xy, 0.0, 0.0), vec4(a.lo.xy, 0.0, 0.0)), drcp(Q(rr.hi.xxxx, rr.lo.xxxx)));
   Q W = Q(vec4(U.hi.xy, a.hi.z, rr.hi.x), vec4(U.lo.xy, a.lo.z, rr.lo.x));
-  if (white) W = Q(vec4(U.hi.xy, rr.hi.x, a.hi.z), vec4(U.lo.xy, rr.lo.x, a.lo.z));
+  if (mode != 0) W = Q(vec4(U.hi.xy, rr.hi.x, a.hi.z), vec4(U.lo.xy, rr.lo.x, a.lo.z));
   Q R = dlift(vec4(1.0, 0.0, 1.0, 0.0));
   int m = int(n);
   for (int k = 0; k < 7; k++) { if ((m & 1) != 0) R = bcmulD(R, W); m >>= 1; if (m == 0) break; W = bcmulD(W, W); }
   // R = (cos nλ, sin nλ, rⁿ cos nμ, rⁿ sin nμ)
   Q m1 = Q(vec4(R.hi.xy, 1.0, 0.0), vec4(R.lo.xy, 0.0, 0.0));
   Q m2 = Q(vec4(R.hi.ww, R.hi.z, 0.0), vec4(R.lo.ww, R.lo.z, 0.0));
-  if (white) m2 = Q(vec4(R.hi.zz, -R.hi.w, 0.0), vec4(R.lo.zz, -R.lo.w, 0.0));
+  if (mode != 0) { float sz = mode == 1 ? -1.0 : 1.0; m2 = Q(vec4(R.hi.zz, sz * R.hi.w, 0.0), vec4(R.lo.zz, sz * R.lo.w, 0.0)); }
   Q o = dmul(m1, m2);
   if (a.hi.w != 0.0) {
     // the 4th component scales by r^(n−1) = |Vⁿ| / r, as in the float version
@@ -912,8 +970,141 @@ Q bulbPowD(Q a, float n, bool white) {
 }
 #endif`;
 
+// atan2 that is defined at the origin (GLSL leaves atan(0, 0) undefined)
+const ATAN2S = `#ifndef ATAN2S
+#define ATAN2S
+float atan2s(float y, float x) { return x == 0.0 && y == 0.0 ? 0.0 : atan(y, x); }
+#endif`;
+// Triplex powers r^n·(…) in spherical coordinates, after Nylander's catalogue: θ, φ are the two angles, each times n
+const TRIG_BODY = {
+  // White's power with +sin nφ in z: the consistent variant that admits multiplication, division, roots
+  bulbp: `float th = atan2s(a.y, a.x) * n, ph = asin(clamp(a.z / r, -1.0, 1.0)) * n;
+  return vec4(rn * cos(th) * cos(ph), rn * sin(th) * cos(ph), rn * sin(ph), a.w * rn / r);`,
+  // Rudy Rucker (1990): the second angle measured in the x–z plane
+  rucker: `float th = atan2s(a.y, a.x) * n, ph = atan2s(a.z, a.x) * n;
+  return vec4(rn * cos(th) * cos(ph), rn * sin(th) * cos(ph), rn * sin(ph), a.w * rn / r);`,
+  // "Christmas tree": angle from the x axis, then around it; contains the complex Mandelbrot set in the x–y plane
+  xmas: `float th = acos(clamp(a.x / r, -1.0, 1.0)) * n, ph = atan2s(a.z, a.y) * n;
+  return vec4(rn * cos(th), rn * sin(th) * cos(ph), rn * sin(th) * sin(ph), a.w * rn / r);`,
+  // forward / reversed rotation order combined
+  fwdrev: `float th = atan2s(a.y, a.x) * n, ph = asin(clamp(a.z / r, -1.0, 1.0)) * n;
+  return vec4(rn * cos(th) * cos(ph), rn * sin(th) * cos(ph), rn * cos(th) * sin(ph), a.w * rn / r);`,
+};
+const TRIG_JS = (() => {
+  const at2 = (y, x) => (x === 0 && y === 0 ? 0 : Math.atan2(y, x)), asn = (v) => Math.asin(Math.min(1, Math.max(-1, v))), acs = (v) => Math.acos(Math.min(1, Math.max(-1, v)));
+  const wrap = (f) => (a, n) => { const r = Math.hypot(a[0], a[1], a[2]); if (r < 1e-300) return [0, 0, 0, 0]; const rn = r ** n; return f(a, n, r, rn).concat(a[3] * rn / r); };
+  return {
+    bulbp: wrap((a, n, r, rn) => { const th = at2(a[1], a[0]) * n, ph = asn(a[2] / r) * n; return [rn * Math.cos(th) * Math.cos(ph), rn * Math.sin(th) * Math.cos(ph), rn * Math.sin(ph)]; }),
+    rucker: wrap((a, n, r, rn) => { const th = at2(a[1], a[0]) * n, ph = at2(a[2], a[0]) * n; return [rn * Math.cos(th) * Math.cos(ph), rn * Math.sin(th) * Math.cos(ph), rn * Math.sin(ph)]; }),
+    xmas: wrap((a, n, r, rn) => { const th = acs(a[0] / r) * n, ph = at2(a[2], a[1]) * n; return [rn * Math.cos(th), rn * Math.sin(th) * Math.cos(ph), rn * Math.sin(th) * Math.sin(ph)]; }),
+    fwdrev: wrap((a, n, r, rn) => { const th = at2(a[1], a[0]) * n, ph = asn(a[2] / r) * n; return [rn * Math.cos(th) * Math.cos(ph), rn * Math.sin(th) * Math.cos(ph), rn * Math.cos(th) * Math.sin(ph)]; }),
+    // Nylander's 4D Mandelbulb: three consecutive rotations, r²·(cos2ψ cos2φ cos2θ, cos2ψ cos2φ sin2θ, −cos2ψ sin2φ, sin2ψ)
+    bulb4: (a) => {
+      const r2 = Math.hypot(a[0], a[1]), r3 = Math.hypot(a[0], a[1], a[2]), rr = a.reduce((s, x) => s + x * x, 0);
+      const th = 2 * at2(a[1], a[0]), ph = 2 * at2(a[2], r2), ps = 2 * at2(a[3], r3);
+      return [rr * Math.cos(ps) * Math.cos(ph) * Math.cos(th), rr * Math.cos(ps) * Math.cos(ph) * Math.sin(th), -rr * Math.cos(ps) * Math.sin(ph), rr * Math.sin(ps)];
+    },
+  };
+})();
+// positive-z triplex multiplication: radii multiply, both angles add (Lambdabulb: c ⊗ (z − z⁴))
+function tmulJS(a, b) {
+  const ra = Math.hypot(a[0], a[1], a[2]), rb = Math.hypot(b[0], b[1], b[2]);
+  if (ra < 1e-300 || rb < 1e-300) return [0, 0, 0, 0];
+  const at2 = (y, x) => (x === 0 && y === 0 ? 0 : Math.atan2(y, x)), asn = (v) => Math.asin(Math.min(1, Math.max(-1, v)));
+  const th = at2(a[1], a[0]) + at2(b[1], b[0]), ph = asn(a[2] / ra) + asn(b[2] / rb), r = ra * rb;
+  return [r * Math.cos(th) * Math.cos(ph), r * Math.sin(th) * Math.cos(ph), r * Math.sin(ph), 0];
+}
+const polyJS = (name, a) => POLY[name].map((tm) => tm.reduce((s, [k, i, j]) => s + k * a[i] * a[j], 0));
+// Frobenius norm of the Jacobian of a quadratic map: an upper bound of its stretching, for the scalar derivative
+function polyGain(name, a) {
+  let s = 0;
+  for (const tm of POLY[name]) for (let m = 0; m < 4; m++) {
+    const d = tm.reduce((acc, [k, i, j]) => acc + (i === m ? k * a[j] : 0) + (j === m ? k * a[i] : 0), 0);
+    s += d * d;
+  }
+  return Math.sqrt(s);
+}
+const AXL = "xyzw";
+function polyGLSL(name, jac, df) {
+  const T = POLY[name], term = (src) => ([k, i, j]) => `${glf(k)} * ${src}.${AXL[i]} * ${src}.${AXL[j]}`;
+  const comp = (tm) => (tm.length ? tm.map(term("a")).join(" + ") : "0.0");
+  const col = (m) => `vec4(${T.map((tm) => tm.flatMap(([k, i, j]) => [i === m ? `${glf(k)} * a.${AXL[j]}` : null, j === m ? `${glf(k)} * a.${AXL[i]}` : null]).filter(Boolean).join(" + ") || "0.0").join(", ")})`;
+  let out = `vec4 f_${name}(vec4 a) { return vec4(${T.map(comp).join(", ")}); }
+mat4 ${name}_J(vec4 a) { return mat4(${[0, 1, 2, 3].map(col).join(", ")}); }
+`;
+  if (df) {
+    // term t of every component at once: lanes pick their own factor pair and coefficient
+    const nt = Math.max(...T.map((tm) => tm.length));
+    const st = [];
+    for (let t = 0; t < nt; t++) {
+      const L = T.map((tm) => AXL[tm[t] ? tm[t][1] : 0]).join(""), R = T.map((tm) => AXL[tm[t] ? tm[t][2] : 0]).join("");
+      const C = T.map((tm) => glf(tm[t] ? tm[t][0] : 0)).join(", ");
+      st.push(`r = dadd(r, dmulf(dmul(Q(a.hi.${L}, a.lo.${L}), Q(a.hi.${R}, a.lo.${R})), vec4(${C})));`);
+    }
+    out += `Q f_${name}(Q a) { Q r = dlift(vec4(0.0)); ${st.join(" ")} return r; }
+`;
+  }
+  out += `S f_${name}(S a) { mat4 M = ${name}_J(VHI(a.v)); return S(f_${name}(a.v), a.d * sqrt(dot(M[0], M[0]) + dot(M[1], M[1]) + dot(M[2], M[2]) + dot(M[3], M[3]))); }
+`;
+  if (jac) out += `J f_${name}(J a) { return J(f_${name}(a.v), ${name}_J(VHI(a.v)) * a.d); }
+`;
+  return out;
+}
+function trigGLSL(name, jac, df) {
+  const four = name === "bulb4";
+  const decl = four ? "" : ", float n", pass = four ? "" : ", n";
+  let out = ATAN2S + "\n";
+  out += four
+    ? `vec4 f_bulb4(vec4 a) {
+  float r2 = length(a.xy), r3 = length(a.xyz), rr = dot(a, a);
+  float th = 2.0 * atan2s(a.y, a.x), ph = 2.0 * atan2s(a.z, r2), ps = 2.0 * atan2s(a.w, r3);
+  return rr * vec4(cos(ps) * cos(ph) * cos(th), cos(ps) * cos(ph) * sin(th), -cos(ps) * sin(ph), sin(ps));
+}
+`
+    : `vec4 f_${name}(vec4 a, float n) {
+  float r = length(a.xyz);
+  if (r < 1e-30) return vec4(0.0);
+  float rn = pow(r, n);
+  ${TRIG_BODY[name]}
+}
+`;
+  if (df) out += name === "bulbp"
+    ? `${BULB_DF}
+Q f_bulbp(Q a, float n) { if (n == floor(n) && n >= 1.0 && n <= 127.0) return bulbPowD(a, n, 2); return dlift(f_bulbp(a.hi, n)); }
+`
+    : `Q f_${name}(Q a${decl}) { return dlift(f_${name}(a.hi${pass})); }
+`;
+  out += `S f_${name}(S a${decl}) { float r = max(length(VHI(a.v)), 1e-30); return S(f_${name}(a.v${pass}), a.d * ${four ? "2.0 * r" : "n * pow(r, n - 1.0)"}); }
+`;
+  if (jac) out += `vec4 ${name}D(vec4 v, vec4 d${decl}) { float l = length(d); if (l == 0.0) return vec4(0.0); float s = 1e-3 * max(length(v), 1e-20) / l; return (f_${name}(v + d * s${pass}) - f_${name}(v - d * s${pass})) / (2.0 * s); }
+J f_${name}(J a${decl}) { vec4 v = VHI(a.v); return J(f_${name}(a.v${pass}), ${J3((i) => `${name}D(v, a.d[${i}]${pass})`)}); }
+`;
+  return out;
+}
+function fn2GLSL(name, jac, df) {
+  // tmul only: radii multiply, longitudes and latitudes add
+  let out = ATAN2S + `
+vec4 f_tmul(vec4 a, vec4 b) {
+  float ra = length(a.xyz), rb = length(b.xyz);
+  if (ra < 1e-30 || rb < 1e-30) return vec4(0.0);
+  float th = atan2s(a.y, a.x) + atan2s(b.y, b.x), ph = asin(clamp(a.z / ra, -1.0, 1.0)) + asin(clamp(b.z / rb, -1.0, 1.0)), r = ra * rb;
+  return vec4(r * cos(th) * cos(ph), r * sin(th) * cos(ph), r * sin(ph), 0.0);
+}
+`;
+  if (df) out += `Q f_tmul(Q a, Q b) { return dlift(f_tmul(a.hi, b.hi)); }
+`;
+  out += `S f_tmul(S a, S b) { return S(f_tmul(a.v, b.v), length(VHI(a.v)) * b.d + a.d * length(VHI(b.v))); }
+`;
+  if (jac) out += `vec4 tmulD(vec4 a, vec4 da, vec4 b, vec4 db) { float l = max(length(da), length(db)); if (l == 0.0) return vec4(0.0); float s = 1e-3 * max(max(length(a), length(b)), 1e-20) / l; return (f_tmul(a + da * s, b + db * s) - f_tmul(a - da * s, b - db * s)) / (2.0 * s); }
+J f_tmul(J a, J b) { vec4 u = VHI(a.v), v = VHI(b.v); return J(f_tmul(a.v, b.v), ${J3((i) => `tmulD(u, a.d[${i}], v, b.d[${i}])`)}); }
+`;
+  return out;
+}
+
 // Folds act on the 4 components directly, independent of the algebra
 function foldGLSL(name, jac, df) {
+  if (POLY[name]) return polyGLSL(name, jac, df);
+  if (TRIGN.includes(name) || name === "bulb4") return trigGLSL(name, jac, df);
   const G = {
     boxfold: {
       v: `vec4 f_boxfold(vec4 a, float r) { return clamp(a, -r, r) * 2.0 - a; }`,
@@ -953,7 +1144,7 @@ vec4 f_spherefold(vec4 a, float mn, float mx) { return a * sfK(dot(a, a), mn, mx
   return vec4(rn * sin(th) * cos(ph), rn * sin(th) * sin(ph), rn * cos(th), a.w * rn / r);
 }`,
       q: `${BULB_DF}
-Q f_bulb(Q a, float n) { if (n == floor(n) && n >= 1.0 && n <= 127.0) return bulbPowD(a, n, false); return dlift(f_bulb(a.hi, n)); }`,
+Q f_bulb(Q a, float n) { if (n == floor(n) && n >= 1.0 && n <= 127.0) return bulbPowD(a, n, 0); return dlift(f_bulb(a.hi, n)); }`,
       s: `S f_bulb(S a, float n) { return S(f_bulb(a.v, n), a.d * n * pow(max(length(VHI(a.v)), 1e-30), n - 1.0)); }`,
       // the triplex power is not conformal: Jacobian columns by central differences
       j: `vec4 bulbD(vec4 v, vec4 d, float n) { float l = length(d); if (l == 0.0) return vec4(0.0); float s = 1e-3 * max(length(v), 1e-20) / l; return (f_bulb(v + d * s, n) - f_bulb(v - d * s, n)) / (2.0 * s); }
@@ -975,7 +1166,7 @@ J f_bulb(J a, float n) { vec4 v = VHI(a.v); return J(f_bulb(a.v, n), ${J3((i) =>
   return vec4(rn * cos(th) * cos(ph), rn * sin(th) * cos(ph), -rn * sin(ph), a.w * rn / r);
 }`,
       q: `${BULB_DF}
-Q f_bulbw(Q a, float n) { if (n == floor(n) && n >= 1.0 && n <= 127.0) return bulbPowD(a, n, true); return dlift(f_bulbw(a.hi, n)); }`,
+Q f_bulbw(Q a, float n) { if (n == floor(n) && n >= 1.0 && n <= 127.0) return bulbPowD(a, n, 1); return dlift(f_bulbw(a.hi, n)); }`,
       s: `S f_bulbw(S a, float n) { return S(f_bulbw(a.v, n), a.d * n * pow(max(length(VHI(a.v)), 1e-30), n - 1.0)); }`,
       j: `vec4 bulbwD(vec4 v, vec4 d, float n) { float l = length(d); if (l == 0.0) return vec4(0.0); float s = 1e-3 * max(length(v), 1e-20) / l; return (f_bulbw(v + d * s, n) - f_bulbw(v - d * s, n)) / (2.0 * s); }
 J f_bulbw(J a, float n) { vec4 v = VHI(a.v); return J(f_bulbw(a.v, n), ${J3((i) => `bulbwD(v, a.d[${i}], n)`)}); }`,
@@ -1591,6 +1782,7 @@ function shaderCommon(asts, { jac, df, view2d }) {
   src += GLSL_VAL + (jac ? GLSL_TYPES_J : "");
   for (const f of used) if (INTR[f]) src += intrinsicGLSL(f, S.alg, jac, df);
   for (const f of used) if (FOLDS[f]) src += foldGLSL(f, jac, df);
+  for (const f of used) if (FN2[f]) src += fn2GLSL(f, jac, df);
   for (const m of used.pows || []) {
     src += powGLSL(m, "VAL");
     src += `S h_pw${m}(S a) { return S(h_pw${m}(a.v), ${glf(m)} * pow(opn(VHI(a.v)), ${glf(m - 1)}) * a.d); }\n`;
@@ -1770,14 +1962,18 @@ function dfExact(n) {
     case "neg": return dfExact(n.a);
     case "fn":
       if (["abs", "conj", "re", "boxfold", "spherefold"].includes(n.f)) return dfExact(n.a);
-      if (n.f === "bulb" || n.f === "bulbw") { const m = argNum(n.p[0]); return Number.isInteger(m) && m >= 1 && m <= 127 && dfExact(n.a); }
+      if (POLY[n.f]) return dfExact(n.a);
+      if (n.f === "bulb" || n.f === "bulbw" || n.f === "bulbp") { const m = argNum(n.p[0]); return Number.isInteger(m) && m >= 1 && m <= 127 && dfExact(n.a); }
       return false;
+    case "fn2": return false;
   }
   if (n.op === "^") return realK(n.b) && Number.isInteger(n.b.q[0]) && Math.abs(n.b.q[0]) <= 4096 && dfExact(n.a);
   return dfExact(n.a) && dfExact(n.b);
 }
 const dfUseful = () => !RT.asts || RT.asts.every(dfExact);
-const usesFn = (n, names) => n.t === "fn" ? names.includes(n.f) || usesFn(n.a, names) : n.t === "op" ? usesFn(n.a, names) || usesFn(n.b, names) : n.t === "neg" ? usesFn(n.a, names) : false;
+const usesFn = (n, names) => n.t === "fn" ? names.includes(n.f) || usesFn(n.a, names)
+  : n.t === "fn2" ? names.includes(n.f) || usesFn(n.a, names) || usesFn(n.b, names)
+  : n.t === "op" ? usesFn(n.a, names) || usesFn(n.b, names) : n.t === "neg" ? usesFn(n.a, names) : false;
 function markSlots(bad, msg) {
   [...$("slots").querySelectorAll(".expr")].forEach((inp, i) => inp.classList.toggle("bad", i === bad));
   $("exprMsg").textContent = msg || "";
@@ -1801,7 +1997,7 @@ function requestCompile() {
   RT.hasFold = asts.some((a) => usesFn(a, ["boxfold", "spherefold"]));
   // the Jacobian estimate is exact for smooth algebraic formulas but overshoots across folds, abs and the
   // non-conformal Mandelbulb power; there the scalar bound is both more accurate and cheaper
-  RT.nonSmooth = asts.some((a) => usesFn(a, ["boxfold", "spherefold", "abs", "bulb", "bulbw", "norm"]));
+  RT.nonSmooth = asts.some((a) => usesFn(a, ["boxfold", "spherefold", "abs", "bulb", "bulbw", "norm", "bulbp", "rucker", "xmas", "fwdrev", "bulb4", "tmul"]));
   // smooth coloring needs the growth rate per iteration: geometric mean of the slot degrees over one period
   const degs = RT.sched.map(zDegree), d = Math.exp(degs.reduce((a, x) => a + Math.log(Math.max(x, 1)), 0) / degs.length);
   RT.deg = degs.every(isFinite) && d > 1.01 ? d : 2;
@@ -1962,9 +2158,16 @@ function evalS(n, z, c, A) {
         return { v: a.v.map((x) => x * k), d: a.d * k };
       }
       if (n.f === "bulb" || n.f === "bulbw") { const m = argNum(n.p[0]); return { v: (n.f === "bulb" ? bulbN : bulbW)(a.v, m), d: a.d * m * Math.max(Math.hypot(...a.v), 1e-300) ** (m - 1) }; }
+      if (TRIGN.includes(n.f)) { const m = argNum(n.p[0]); return { v: TRIG_JS[n.f](a.v, m), d: a.d * m * Math.max(Math.hypot(...a.v), 1e-300) ** (m - 1) }; }
+      if (n.f === "bulb4") return { v: TRIG_JS.bulb4(a.v), d: a.d * 2 * Math.max(Math.hypot(...a.v), 1e-300) };
+      if (POLY[n.f]) return { v: polyJS(n.f, a.v), d: a.d * polyGain(n.f, a.v) };
       const [v, g] = A.fn(CFD[n.f], a.v);
       return { v, d: a.d * g };
     }
+  }
+  if (n.t === "fn2") {
+    const a = evalS(n.a, z, c, A), b = evalS(n.b, z, c, A);
+    return { v: tmulJS(a.v, b.v), d: Math.hypot(...a.v) * b.d + a.d * Math.hypot(...b.v) };
   }
   const a = evalS(n.a, z, c, A);
   if (n.op === "^") {
@@ -2506,6 +2709,26 @@ function slider(host, o) {
     refresh();
   });
   refresh(); refreshers.push(refresh);
+  // double click with the mouse, or double tap on a touch screen, puts the slider back to its default; detected
+  // from pointer events because mobile browsers do not reliably fire dblclick on range inputs
+  if (o.def) {
+    inp.title = "Double-click to reset";
+    let down = null, lastTap = 0;
+    inp.addEventListener("pointerdown", (e) => { down = { t: performance.now(), x: e.clientX, y: e.clientY }; });
+    inp.addEventListener("pointerup", (e) => {
+      if (!down) return;
+      const now = performance.now(), tap = now - down.t < 300 && Math.hypot(e.clientX - down.x, e.clientY - down.y) < 12;
+      down = null;
+      if (!tap) { lastTap = 0; return; }
+      if (now - lastTap < 400) {
+        lastTap = 0;
+        const v = o.def();
+        if (v === undefined || !isFinite(v)) return;
+        o.set(v); refresh(); after(o);
+        g.classList.remove("reset-flash"); void g.offsetWidth; g.classList.add("reset-flash");
+      } else lastTap = now;
+    });
+  }
   g.append(labelRow(o.label, val), inp); host.append(g); return g;
 }
 function seg(host, o) {
@@ -2546,8 +2769,19 @@ function buttons(host, items) {
   for (const [text, fn] of items) { const x = el("button", "btn", text); x.type = "button"; x.addEventListener("click", fn); b.append(x); }
   host.append(b); return b;
 }
-const bind = (key, extra = {}) => ({ get: () => S[key], set: (v) => { S[key] = v; }, ...extra });
-const bindArr = (key, i, extra = {}) => ({ get: () => S[key][i], set: (v) => { S[key][i] = v; }, ...extra });
+// Default a slider resets to: what the selected preset sets (bound, iterations, c, z₀, …), otherwise the app default
+const PRESET_KEYS = { bound: "bound", iter: "iter", bail: "bail", fudge: "fudge", c: "c", z0: "z0" };
+const PRESET_FALLBACK = { bail: 16, fudge: 0.9 };   // what applyPreset uses when a preset leaves them out
+function presetDefault(key) {
+  const pr = presetSel.value === "" ? null : PRESETS[+presetSel.value];
+  if (!pr || !(key in PRESET_KEYS)) return undefined;
+  return pr[key] !== undefined ? pr[key] : PRESET_FALLBACK[key];
+}
+const bind = (key, extra = {}) => ({ get: () => S[key], set: (v) => { S[key] = v; },
+  // focus: back onto the orbit pivot, the only distance that means something in every scene
+  def: () => { if (key === "focus") return cam.dist; const p = presetDefault(key); return p !== undefined ? p : DEFAULTS[key]; }, ...extra });
+const bindArr = (key, i, extra = {}) => ({ get: () => S[key][i], set: (v) => { S[key][i] = v; },
+  def: () => { const p = presetDefault(key); return (p !== undefined ? p : DEFAULTS[key])[i]; }, ...extra });
 const refreshAll = () => refreshers.forEach((r) => r());
 
 // ---------------------------------------------------------------- panel content
@@ -2725,7 +2959,8 @@ function renderParams() {
   for (const nm of RT.paramNames) {
     const v = pVal(nm), span = Math.max(2, Math.abs(v) * 2);
     slider(host, { label: nm, min: +(v - span).toFixed(2), max: +(v + span).toFixed(2), step: 0.001,
-      get: () => pVal(nm), set: (x) => { S.params[nm] = x; } });
+      get: () => pVal(nm), set: (x) => { S.params[nm] = x; },
+      def: () => { const pr = presetSel.value === "" ? null : PRESETS[+presetSel.value]; return pr && pr.params && nm in pr.params ? pr.params[nm] : 1; } });
   }
 }
 
@@ -3211,7 +3446,7 @@ async function runTour() {
     await tourAnimate((v) => { S.lightInt = v; }, S.lightInt, 3.2, 2000);
     await tourStill(5, "Final render with the headlamp…", 8);
     tourHighlight();
-    tourSay(0, "That's the recipe: preset -> parameters -> fly in with W -> N through walls -> light. Copy link keeps this view.", 1);
+    tourSay(0, "That's the recipe: preset → parameters → fly in with W → N through walls → light. Copy link keeps this view. — Artem Selivanov (broly)", 1);
     $("tourStop").textContent = "Close";
     tour.on = false;
     return;
