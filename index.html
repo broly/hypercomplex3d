@@ -527,7 +527,9 @@ const gpuName = (() => {
 const TAN_HALF = Math.tan((45 * Math.PI / 180) / 2);
 const S = {
   view: 0, camMode: 0, flySpeed: 1, prec: 2,
-  slots: [{ f: "z^2 + c", n: 1 }], params: {}, alg: 0, julia: 0,
+  slots: [{ f: "z^2 + c", n: 1 }], params: {}, alg: 0, julia: 0, z0c: 0,
+  // conv 1: convergence mode (orbits that settle on an attractor), convLevel: the shell ν = level, convEps: |Δz| that counts as settled
+  conv: 0, convLevel: 30, convEps: 1e-4, convPeriod: 6,
   c: [-0.125, -0.256, 0.847, 0.0895], z0: [0, 0, 0, 0],
   hidden: 3, w: 0, rot: [0, 0, 0], rotTarget: 0,
   cut: true, cutAz: 90, cutEl: 90, cutD: 0, cutOutside: true, cutAlpha: 0.85, iter2D: 250, dens2D: 0.035,
@@ -577,6 +579,9 @@ const SCENES = [
     s: { view: 1, iter2D: 3000, samples: 24, dens2D: 0.04, palette: 2, hue: 0.3, vignette: 0.4,
       v2: { u: "-0.10109636384562", v: "0.95628651080914", scale: 1e-12 } },
     cam: [0, 0, 0, 0.5, 0.4, 3.9] },
+  { name: "Convergence: inside the z⁻² cone", preset: 39, note: "Quaternion z⁻² + c in convergence mode, cut open: the 2D triangle revolved around the real axis; the round cavities are the bulbs where the orbit settles on a cycle.",
+    s: { cut: true, cutOutside: false, samples: 16, ao: 2, amb: 0.28, fillInt: 0.4, fillHue: 0.6, lightInt: 1.5, exposure: 1.05, palette: 2, hue: 0.3, colorScale: 1.4, trapMode: 3, vignette: 0.35, bgTop: "#141a2a", bgBot: "#04050a" },
+    cam: [0, 0, 0, 0.55, 0.42, 6.5] },
 ];
 
 const PRESETS = [
@@ -620,6 +625,14 @@ const PRESETS = [
   { name: "Juliabulb (White's quadratic)  c = −0.2 + 0.8i", f: "bulbw(z, power) + c", params: { power: 2 }, alg: 0, julia: 1, c: [-0.2, 0.8, 0, 0], bound: 1.4, cam: [0, 0, 0, 3.3] },
   { name: "Juliabulb, 4th order  c = −0.5 + 0.5i + 0.3j", f: "bulbw(z, power) + c", params: { power: 4 }, alg: 0, julia: 1, c: [-0.5, 0.5, 0.3, 0], bound: 1.3, cam: [0, 0, 0, 3.2] },
   { name: "Lambdabulb (Barnett)  c ⊗ (z − z⁴)", f: "tmul(c, z - bulbp(z, 4))", alg: 0, julia: 1, c: [1.0625, 0.2375, 0, 0], bound: 1.3, bail: 2, iter: 40, cam: [0, 0, 0, 3.2] },
+  // convergence mode: the solid is what settles slowly or never (negative powers start from z₀ = c)
+  { name: "Convergence: quaternion z⁻² + c", f: "z^-2 + c", alg: 0, julia: 0, z0: [0, 0, 0, 0], z0c: 1, conv: 1, convLevel: 40, fudge: 0.6, bound: 2.6, cam: [0, 0, 0, 6.5] },
+  { name: "Convergence: bicomplex z⁻² + c (triangle × triangle)", f: "z^-2 + c", alg: 1, julia: 0, z0: [0, 0, 0, 0], z0c: 1, conv: 1, convLevel: 40, fudge: 0.6, bound: 2.6, cam: [0, 0, 0, 6.5] },
+  { name: "Convergence: bicomplex z⁻³ + c", f: "z^-3 + c", alg: 1, julia: 0, z0: [0, 0, 0, 0], z0c: 1, conv: 1, convLevel: 40, fudge: 0.6, bound: 2.6, cam: [0, 0, 0, 6.5] },
+  { name: "Convergence: inverted Mandelbulb  bulb(z, −2) + c", f: "bulb(z, power) + c", params: { power: -2 }, alg: 0, julia: 0, z0: [0, 0, 0, 0], z0c: 1, conv: 1, convLevel: 40, fudge: 0.6, bound: 2.6, cam: [0, 0, 0, 6.5] },
+  { name: "Convergence: inverted White triplex  bulbw(z, −2) + c", f: "bulbw(z, power) + c", params: { power: -2 }, alg: 0, julia: 0, z0: [0, 0, 0, 0], z0c: 1, conv: 1, convLevel: 40, fudge: 0.6, bound: 2.6, cam: [0, 0, 0, 6.5] },
+  { name: "Convergence: inverted positive-z triplex  bulbp(z, −3) + c", f: "bulbp(z, power) + c", params: { power: -3 }, alg: 0, julia: 0, z0: [0, 0, 0, 0], z0c: 1, conv: 1, convLevel: 40, fudge: 0.6, bound: 2.6, cam: [0, 0, 0, 6.5] },
+  { name: "Convergence: inverted Christmas tree  xmas(z, −2) + c", f: "xmas(z, power) + c", params: { power: -2 }, alg: 0, julia: 0, z0: [0, 0, 0, 0], z0c: 1, conv: 1, convLevel: 40, fudge: 0.6, bound: 2.6, cam: [0, 0, 0, 6.5] },
 ];
 
 // ---------------------------------------------------------------- formula parser → AST over 4-component constants
@@ -1378,6 +1391,49 @@ float trapDist(vec4 z) {
 // escape-time color: dark far from the set, bright near it
 vec3 escColor(float nu, float dens) { return lin(pal(uHue + nu * dens) * (1.0 - exp(-0.1 * max(nu + 1.0, 0.0)))); }
 `;
+// Smooth convergence time with cycle detection: the orbit has settled once |z_k − z_(k−q)| < ε for some lag
+// q = 1 … CP (an attracting fixed point or a cycle of length q). ν is interpolated in ln|z_k − z_(k−q)| between the
+// last two steps (exact for linear convergence); 1e30 if nothing settles. The lags live in shift registers with
+// constant indices (the loops over CP unroll), because dynamic array indexing is slow on ANGLE / D3D.
+const GLSL_CONV = `
+#ifdef CONV
+uniform float uConvEps2, uConvLog, uConvLevel;
+float convNu(VAL z, VAL c, int nMax, out float trap) {
+  trap = 1e20;
+  VAL hz[CP];
+  float lp[CP], lp2[CP];
+  for (int j = 0; j < CP; j++) { hz[j] = z; lp[j] = 0.0; lp2[j] = 0.0; }
+  for (int k = 1; k <= nMax; k++) {
+    z = formula(z, c, k - 1);
+    trap = min(trap, trapDist(VHI(z)));
+    for (int q = 0; q < CP; q++) {
+      if (k <= q) break;
+      vec4 D = VHI(h_sub(z, hz[q]));
+      if (q == 0 && !(dot(D, D) < 1e36)) return 1e30;
+#ifdef BICONV
+      // bicomplex: the two idempotent components iterate independently; the first one to settle decides
+      vec4 I = toI(D);
+      float dA = max(dot(I.xy, I.xy), 1e-60), dB = max(dot(I.zw, I.zw), 1e-60), lA = 0.5 * log(dA), lB = 0.5 * log(dB);
+      bool a = dA <= dB;
+      float d2 = a ? dA : dB, lg = a ? lA : lB, lprev = a ? lp[q] : lp2[q];
+      lp2[q] = lB;
+#else
+      float d2 = max(dot(D, D), 1e-60), lg = 0.5 * log(d2), lprev = lp[q];
+#endif
+      if (d2 < uConvEps2) return k > q + 1 ? float(k - 1) + (lprev - uConvLog) / max(lprev - lg, 1e-3) : float(k);
+#ifdef BICONV
+      lp[q] = lA;
+#else
+      lp[q] = lg;
+#endif
+    }
+    for (int j = CP - 1; j > 0; j--) hz[j] = hz[j - 1];
+    hz[0] = z;
+  }
+  return 1e30;
+}
+#endif
+`;
 
 const GLSL_MAIN = `
 uniform vec2 uRes, uJitter;
@@ -1426,11 +1482,85 @@ VAL toQb(POS p, mat4 B) { return B * vec4(p, uW); }
 float cutSD(POS p) { return dot(p, uPlane.xyz) - uPlane.w; }
 #endif
 
+#ifdef CONV
+// Convergence mode. ν(p) = smooth number of steps until |z_k − z_(k−1)| < ε (see convNu); the solid is ν ≥ level,
+// i.e. the slowly converging and the non-converging points. Its surface is a level set of ν, so the distance is
+// estimated as (level − ν) / |∇ν|, the numerator capped at one step of ν because ν is far from linear (it grows like
+// a logarithm toward the non-converging set). ∇ν comes from the Jacobian of the last two steps:
+// ∂ln|Δ| = Δ·∂Δ / |Δ|², ν = k − 1 + u / w with u = ln|Δ_(k−1)| − ln ε, w = ln|Δ_(k−1)| − ln|Δ_k|.
+float deConv(POS p, out vec2 info, out vec3 grad) {
+  VAL P = toQb(p, uBasis);
+  mat3x4 E = mat3x4(uBasis[0], uBasis[1], uBasis[2]);
+#ifdef JULIA
+  J z = J(P, E); J c = liftJ(uC);
+#elif defined(Z0C)
+  J z = J(P, E); J c = J(P, E);
+#else
+  J z = liftJ(uZ0); J c = J(P, E);
+#endif
+  int nMax = min(int(uConvLevel) + 2, 4000);
+  VAL hz[CP];
+  mat3x4 hd[CP];
+  float lp[CP], lp2[CP];
+  vec3 gp[CP], gp2[CP];
+  for (int j = 0; j < CP; j++) { hz[j] = z.v; hd[j] = z.d; lp[j] = 0.0; gp[j] = vec3(0.0); lp2[j] = 0.0; gp2[j] = vec3(0.0); }
+  float trap = 1e20, nu = 1e30;
+  vec3 g = vec3(0.0);
+  bool done = false;
+  for (int k = 1; k <= nMax; k++) {
+    z = formula(z, c, k - 1);
+    trap = min(trap, trapDist(VHI(z.v)));
+    for (int q = 0; q < CP; q++) {
+      if (k <= q) break;
+      vec4 D = VHI(h_sub(z.v, hz[q]));
+      mat3x4 M = z.d - hd[q];
+      if (q == 0 && !(dot(D, D) < 1e36)) { done = true; break; }
+#ifdef BICONV
+      vec4 I = toI(D), m0 = toI(M[0]), m1 = toI(M[1]), m2 = toI(M[2]);
+      float dA = max(dot(I.xy, I.xy), 1e-60), dB = max(dot(I.zw, I.zw), 1e-60), lA = 0.5 * log(dA), lB = 0.5 * log(dB);
+      vec3 gA = vec3(dot(I.xy, m0.xy), dot(I.xy, m1.xy), dot(I.xy, m2.xy)) / dA;
+      vec3 gB = vec3(dot(I.zw, m0.zw), dot(I.zw, m1.zw), dot(I.zw, m2.zw)) / dB;
+      bool a = dA <= dB;
+      float d2 = a ? dA : dB, lg = a ? lA : lB, lprev = a ? lp[q] : lp2[q];
+      vec3 gg = a ? gA : gB, gprev = a ? gp[q] : gp2[q];
+      lp2[q] = lB; gp2[q] = gB;
+#else
+      float d2 = max(dot(D, D), 1e-60), lg = 0.5 * log(d2), lprev = lp[q];
+      vec3 gg = (D * M) / d2, gprev = gp[q];
+#endif
+      if (d2 < uConvEps2) {
+        if (k > q + 1) {
+          float w = max(lprev - lg, 1e-3), u = lprev - uConvLog;
+          nu = float(k - 1) + u / w;
+          g = ((w - u) * gprev + u * gg) / (w * w);
+        } else nu = float(k);
+        done = true; break;
+      }
+#ifdef BICONV
+      lp[q] = lA; gp[q] = gA;
+#else
+      lp[q] = lg; gp[q] = gg;
+#endif
+    }
+    if (done) break;
+    for (int j = CP - 1; j > 0; j--) { hz[j] = hz[j - 1]; hd[j] = hd[j - 1]; }
+    hz[0] = z.v; hd[0] = z.d;
+  }
+  info = vec2(trap, min(nu, uConvLevel));
+  grad = g;
+  if (nu >= uConvLevel) return 0.0;
+  return min(min(uConvLevel - nu, 1.0) / max(length(g), 1e-30), uBound);
+}
+float deS(POS p, out vec2 info) { vec3 g; return deConv(p, info, g); }
+float deJ(POS p, out vec2 info, out vec3 grad) { return deConv(p, info, grad); }
+#else
 // Distance estimate 0.5·|z|·ln|z| / |z'| with the scalar derivative bound
 float deS(POS p, out vec2 info) {
   VAL P = toQb(p, uBasis);
 #ifdef JULIA
   S z = S(P, 1.0); S c = liftS(uC);
+#elif defined(Z0C)
+  S z = S(P, 1.0); S c = S(P, 1.0);
 #else
   S z = liftS(uZ0); S c = S(P, 1.0);
 #endif
@@ -1452,6 +1582,8 @@ float deJ(POS p, out vec2 info, out vec3 grad) {
   mat3x4 E = mat3x4(uBasis[0], uBasis[1], uBasis[2]);
 #ifdef JULIA
   J z = J(P, E); J c = liftJ(uC);
+#elif defined(Z0C)
+  J z = J(P, E); J c = J(P, E);
 #else
   J z = liftJ(uZ0); J c = J(P, E);
 #endif
@@ -1468,6 +1600,7 @@ float deJ(POS p, out vec2 info, out vec3 grad) {
   if (!(g > 0.0)) return 4.0 * gEps;
   return uLinDE == 1 ? r2 / g : 0.25 * log(r2) * r2 / g;
 }
+#endif
 #endif
 
 // Unscaled distance estimate: the hit test must see the real value. uFudge only shortens the steps;
@@ -1591,8 +1724,18 @@ bool slice2D(POS q, out vec3 col, out vec2 info) {
   VAL P = toQb(q, uPlaneBasis);
 #ifdef JULIA
   VAL z = P; VAL c = VLIFT(uC);
+#elif defined(Z0C)
+  VAL z = P; VAL c = P;
 #else
   VAL z = VLIFT(uZ0); VAL c = P;
+#endif
+#ifdef CONV
+  float trapC, nuC = convNu(z, c, uIter2D, trapC);
+  info = vec2(trapC, nuC);
+  col = vec3(0.0);
+  if (nuC >= 1e29) return true;
+  col = escColor(nuC, uDens2D);
+  return false;
 #endif
   float r2 = 0.0, trap = 1e20;
   int n = 0;
@@ -1747,18 +1890,30 @@ void main() {
   vec4 P = uCref + d4;
 #ifdef JULIA
   vec4 z = P, c = uC;
+#elif defined(Z0C)
+  vec4 z = P, c = P;
 #else
   vec4 z = uZ0, c = P;
 #endif
+#ifdef CONV
+  float nuC = convNu(z, c, uIter2D, trap);
+  esc = nuC < 1e29;
+#else
   for (; n < uIter2D; n++) { z = formula(z, c, n); r2 = dot(z, z); trap = min(trap, trapDist(z)); if (!(r2 <= uB2)) { esc = true; break; } }
 #endif
+#endif
   vec3 col;
+#ifdef CONV
+  if (!esc) col = lin(pal(uHue + 0.12 * log(trap + 1e-8))) * 0.22;
+  else col = escColor(nuC, uDens2D);
+#else
   if (!esc) col = lin(pal(uHue + 0.12 * log(trap + 1e-8))) * 0.22;
   else {
     float nu = float(n);
     if (r2 < 1e30) nu += 1.0 - log(max(0.5 * log(r2) / uLogBail, 1e-6)) / log(uDeg);
     col = escColor(nu, uDens2D);
   }
+#endif
   outColor = vec4(pow(max(col * uExposure, 0.0), vec3(1.0 / 2.2)), 1.0);
 }
 `;
@@ -1806,20 +1961,25 @@ function shaderCommon(asts, { jac, df, view2d }) {
 const header = (defs) => `#version 300 es\nprecision highp float;\nprecision highp int;\n${defs.filter(Boolean).join("\n")}\n`;
 
 const derivJac = () => (S.deriv === 2 ? !RT.nonSmooth : S.deriv === 0);
+// z₀ = c: the orbit starts at the point itself (for negative powers, where 0 → ∞ → c anyway)
+const z0cOn = () => !!S.z0c && !S.julia;
 function build3D(asts) {
-  const jac = derivJac(), df = RT.useDF;
-  const src = header([jac && "#define JAC", S.julia && "#define JULIA", S.cut && "#define CUT", S.shadows && "#define SHADOWS", `#define AO ${S.ao}`, df && "#define DF64"]) +
-    shaderCommon(asts, { jac, df }) + GLSL_PAL + GLSL_MAIN;
+  // the convergence estimator needs the gradient of ν, so it always runs on the Jacobian
+  const jac = S.conv ? true : derivJac(), df = RT.useDF;
+  const src = header([jac && "#define JAC", S.julia && "#define JULIA", z0cOn() && "#define Z0C", S.conv && "#define CONV", S.conv && `#define CP ${S.convPeriod}`, S.conv && S.alg === 1 && "#define BICONV", S.cut && "#define CUT", S.shadows && "#define SHADOWS", `#define AO ${S.ao}`, df && "#define DF64"]) +
+    shaderCommon(asts, { jac, df }) + GLSL_PAL + GLSL_CONV + GLSL_MAIN;
   return { src, kind: "3d", pert: false };
 }
 function build2D(asts) {
   let pert = null;
   try {
     if (asts.length > 1) throw new Error("hybrid formula");
+    if (S.conv) throw new Error("convergence mode");
+    if (z0cOn()) throw new Error("z₀ = c");
     pert = genPert(asts[0]); RT.pertWhy = "";
   } catch (e) { RT.pertWhy = e.message; }
-  const src = header([S.julia && "#define JULIA", pert && "#define PERT"]) +
-    shaderCommon(asts, { jac: false, df: false, view2d: true }) + (pert ? GLSL_PERT_HELPERS + pert : "") + GLSL_PAL + GLSL_2D;
+  const src = header([S.julia && "#define JULIA", z0cOn() && "#define Z0C", S.conv && "#define CONV", S.conv && `#define CP ${S.convPeriod}`, S.conv && S.alg === 1 && "#define BICONV", pert && "#define PERT"]) +
+    shaderCommon(asts, { jac: false, df: false, view2d: true }) + (pert ? GLSL_PERT_HELPERS + pert : "") + GLSL_PAL + GLSL_CONV + GLSL_2D;
   return { src, kind: "2d", pert: !!pert };
 }
 
@@ -2226,10 +2386,51 @@ function bulbW(a, n) {
 const linDE = () => S.deMode === 2 || (S.deMode === 0 && RT.hasFold);
 const camDE = () => deAt(camFrame().pos);
 // Same distance estimate the shader marches with, evaluated at a point of the 3D slice
+// smooth convergence time at a 4D point, as convNu in the shader
+function convNuAt(P) {
+  const A = ALGS[S.alg], sch = RT.sched, eps = S.convEps, L = Math.log(eps), nMax = Math.min(Math.floor(S.convLevel) + 2, 4000), CP = S.convPeriod;
+  let z = S.julia || z0cOn() ? { v: P, d: 1 } : { v: S.z0, d: 0 };
+  const c = S.julia ? { v: S.c, d: 0 } : { v: P, d: 1 };
+  const hz = Array(CP).fill(z.v), lp = Array(CP).fill(0), lp2 = Array(CP).fill(0), bi = S.alg === 1;
+  for (let k = 1; k <= nMax; k++) {
+    z = evalS(sch[(k - 1) % sch.length], z, c, A);
+    for (let q = 0; q < CP && q < k; q++) {
+      const D = z.v.map((x, i) => x - hz[q][i]);
+      if (q === 0 && !(Math.hypot(...D) < 1e18)) return Infinity;
+      let d, lg, lprev;
+      if (bi) {
+        // idempotent components (as toI in the shader); the first one to settle decides
+        const dA = Math.max(Math.hypot(D[0] + D[3], D[1] - D[2]), 1e-300), dB = Math.max(Math.hypot(D[0] - D[3], D[1] + D[2]), 1e-300);
+        const a = dA <= dB; d = a ? dA : dB; lg = Math.log(d); lprev = a ? lp[q] : lp2[q];
+        lp[q] = Math.log(dA); lp2[q] = Math.log(dB);
+      } else { d = Math.max(Math.hypot(...D), 1e-300); lg = Math.log(d); lprev = lp[q]; lp[q] = lg; }
+      if (d < eps) return k > q + 1 ? k - 1 + (lprev - L) / Math.max(lprev - lg, 1e-3) : k;
+    }
+    hz.pop(); hz.unshift(z.v);
+  }
+  return Infinity;
+}
+// same estimate as deConv in the shader, with the gradient of ν by central differences
+function convDeAt(p) {
+  const F = bodyFrame(), nu0 = convNuAt(to4(F, p, S.w));
+  if (!(nu0 < S.convLevel)) return 0;
+  const h = Math.min(Math.max(1e-3 * (RT.lastDE || 1e-3), 1e-12), 1e-4);
+  const g = [0, 1, 2].map((a) => {
+    const q1 = [...p], q2 = [...p]; q1[a] += h; q2[a] -= h;
+    const n1 = convNuAt(to4(F, q1, S.w)), n2 = convNuAt(to4(F, q2, S.w));
+    return isFinite(n1) && isFinite(n2) ? (n1 - n2) / (2 * h) : 1 / h;
+  });
+  return Math.min(Math.min(S.convLevel - nu0, 1) / Math.max(Math.hypot(...g), 1e-30), S.bound);
+}
 function deAt(p) {
   if (!RT.sched) return 1;
+  if (S.conv) {
+    let de = convDeAt(p) * S.fudge;
+    if (S.cut) de = Math.max(de, dot3(p, cutNormal()) - S.cutD);
+    return de;
+  }
   const A = ALGS[S.alg], P = to4(bodyFrame(), p, S.w);
-  let z = S.julia ? { v: P, d: 1 } : { v: S.z0, d: 0 };
+  let z = S.julia || z0cOn() ? { v: P, d: 1 } : { v: S.z0, d: 0 };
   const c = S.julia ? { v: S.c, d: 0 } : { v: P, d: 1 };
   let r2 = 0, esc = false;
   for (let n = 0; n < RT.iterEff; n++) { z = evalS(RT.sched[n % RT.sched.length], z, c, A); r2 = z.v.reduce((s, x) => s + x * x, 0); if (!(r2 <= S.bail * S.bail)) { esc = true; break; } }
@@ -2348,6 +2549,9 @@ function tempRGB(k) {
 const hueRGB = (h) => [0, 1 / 3, 2 / 3].map((o) => Math.pow(0.5 + 0.5 * Math.cos(2 * Math.PI * (h - o)), 2.2));
 
 function setCommon(u) {
+  gl.uniform1f(u.uConvEps2, S.convEps * S.convEps);
+  gl.uniform1f(u.uConvLog, Math.log(S.convEps));
+  gl.uniform1f(u.uConvLevel, S.convLevel);
   const pv = new Float32Array(MAX_PARAMS);
   (RT.paramNames || []).forEach((nm, i) => { pv[i] = pVal(nm); });
   gl.uniform1fv(u.uParam, pv);
@@ -2653,7 +2857,7 @@ function readout() {
   else if (RT.phase === "full") st = `antialiasing <b>${RT.sample}/${S.samples}</b>`;
   else st = `done in <b>${(RT.doneMs / 1000).toFixed(1)} s</b>`;
   let mode;
-  if (S.view === 0) mode = `to surface <b>${RT.camDE > 0 ? fmtE(RT.camDE) : "inside"}</b> · ${RT.iterEff} it. · precision <b>${RT.useDF ? "df64" : "float"}</b> · derivative <b>${derivJac() ? "Jacobian" : "scalar"}</b>` +
+  if (S.view === 0) mode = `to surface <b>${RT.camDE > 0 ? fmtE(RT.camDE) : "inside"}</b> · ${RT.iterEff} it. · precision <b>${RT.useDF ? "df64" : "float"}</b> · derivative <b>${S.conv || derivJac() ? "Jacobian" : "scalar"}</b>` +
     (S.noclip ? ` · <span class="acc">through walls</span>` : "") +
     (RT.precWarn ? `<br><span class="acc">precision limit reached (${precLimit() === REL_DF ? "df64" : !dfUseful() ? "float: the formula has functions that df64 cannot evaluate (exp, sin, norm, fractional powers…)" : "float — switch precision to df64 or Auto"})</span>` : "");
   else {
@@ -2856,8 +3060,15 @@ const cGroup = el("div", "body"), zGroup = el("div", "body");
 cGroup.append(el("div", "note", "Julia set parameter <b>c</b>")); zGroup.append(el("div", "note", "Starting point <b>z₀</b> (critical point of the formula)"));
 AXN.forEach((n, i) => slider(cGroup, bindArr("c", i, { label: `c · ${n}`, min: -1.5, max: 1.5, step: 0.001 })));
 AXN.forEach((n, i) => slider(zGroup, bindArr("z0", i, { label: `z₀ · ${n}`, min: -1.5, max: 1.5, step: 0.001 })));
+check(zGroup, bind("z0c", { label: "Start from z₀ = c (for negative powers)", recompile: true }));
 hostF.append(cGroup, zGroup);
 function updateVecGroups() { cGroup.hidden = !S.julia; zGroup.hidden = !!S.julia; }
+seg(hostF, bind("conv", { label: "Iteration test", recompile: true, on: () => { convBox.hidden = !S.conv; }, items: [[0, "Escape", "Divergence: the set is what does not fly off to infinity"], [1, "Convergence", "The orbit settles on an attractor; the solid is what converges slowly or never"]] }));
+const convBox = el("div", "body"); convBox.hidden = true; hostF.append(convBox);
+slider(convBox, bind("convLevel", { label: "Shell level ν, steps", min: 2, max: 300, log: true, fmt: (v) => v.toFixed(1) }));
+slider(convBox, bind("convEps", { label: "Settled when |Δz| <", min: 1e-9, max: 0.1, log: true, fmt: (v) => v.toExponential(0) }));
+slider(convBox, bind("convPeriod", { label: "Longest cycle detected", min: 1, max: 8, step: 1, int: true, recompile: true }));
+convBox.append(el("div", "note", "ν is the smooth number of steps the orbit needs to settle on a fixed point or a cycle of up to the given length (|z<sub>k</sub> − z<sub>k−q</sub>| below the threshold). Points with ν above the shell level are solid, so lowering it peels layers off the slowly converging region. The cutting plane and the 2D view show the full convergence picture. Negative powers such as <b>z^-2 + c</b> need <b>z₀ = c</b>."));
 
 const hostSl = $("hostSlice");
 seg(hostSl, bind("hidden", { label: "Hidden (fixed) axis", math: true, on: () => { S.rot = [0, 0, 0]; refreshAll(); updateAxes(); }, items: AXN.map((n, i) => [i, n]) }));
@@ -3008,6 +3219,9 @@ function applyPreset(p) {
   if (p.z0) S.z0 = [...p.z0];
   S.hidden = 3; S.w = 0; S.rot = [0, 0, 0]; S.cutD = 0;
   S.bail = p.bail || 16;
+  S.conv = p.conv || 0; S.z0c = p.z0c || 0;
+  S.convLevel = p.convLevel || DEFAULTS.convLevel; S.convEps = p.convEps || DEFAULTS.convEps; S.convPeriod = p.convPeriod || DEFAULTS.convPeriod;
+  convBox.hidden = !S.conv;
   // abs() folds make the distance estimate overshoot thin blades; such presets carry a smaller step
   S.fudge = p.fudge || 0.9;
   cam.target = p.cam.slice(0, 3); cam.dist = p.cam[3]; cam.yaw = 0.55; cam.pitch = 0.42;
@@ -3267,6 +3481,7 @@ function setState(st, camArr) {
   paramKey = "";
   renderSlots(); refreshAll(); updateVecGroups(); updateAxes(); updateViewUI();
   trapBox.hidden = S.trapMode !== 1;
+  convBox.hidden = !S.conv;
   lampBox.hidden = S.lightMode === 0; lampDistRow.hidden = S.lightMode !== 2;
   requestCompile();
 }
@@ -3275,6 +3490,7 @@ function applyScene(sc) {
   const base = {
     slots: p.slots ? p.slots.map((sl) => ({ ...sl })) : [{ f: p.f, n: 1 }], params: { ...(p.params || {}) }, alg: p.alg, julia: p.julia, bound: p.bound,
     bail: p.bail || 16, iter: p.iter || DEFAULTS.iter, c: p.c || DEFAULTS.c, z0: p.z0 || DEFAULTS.z0,
+    conv: p.conv || 0, z0c: p.z0c || 0, convLevel: p.convLevel || DEFAULTS.convLevel, convEps: p.convEps || DEFAULTS.convEps, convPeriod: p.convPeriod || DEFAULTS.convPeriod, fudge: p.fudge || DEFAULTS.fudge,
   };
   presetSel.value = String(sc.preset);
   setState({ ...base, ...sc.s }, sc.cam);
